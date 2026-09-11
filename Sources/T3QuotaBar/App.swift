@@ -14,6 +14,7 @@ struct AppFailure: LocalizedError {
     @Published var connected = false
     @Published var message = "Connecting to T3 Code…"
     @Published var status: [String: String] = [:]
+    @Published var statusUpdatedAt: [String: Date] = [:]
     var onChange: (() -> Void)?
     private var connection: Task<Void, Never>?
     private var socket: URLSessionWebSocketTask?
@@ -215,11 +216,19 @@ struct AppFailure: LocalizedError {
     func refreshStatus() async {
         for (driver, host) in [("codex", "status.openai.com"), ("claudeAgent", "status.claude.com")] {
             do {
-                struct Summary: Decodable { struct Status: Decodable { let description: String }; let status: Status }
+                struct Summary: Decodable {
+                    struct Status: Decodable { let description: String }
+                    struct Page: Decodable { let updated_at: String? }
+                    let status: Status
+                    let page: Page?
+                }
                 let data = try await request(URL(string: "https://\(host)/api/v2/status.json")!)
-                status[driver] = try JSONDecoder().decode(Summary.self, from: data).status.description
+                let summary = try JSONDecoder().decode(Summary.self, from: data)
+                status[driver] = summary.status.description
+                statusUpdatedAt[driver] = summary.page?.updated_at.flatMap(parseDate)
             } catch {
                 status[driver] = "Status unavailable"
+                statusUpdatedAt.removeValue(forKey: driver)
                 NSLog("T3QuotaBar status fetch failed for %@: %@", driver, error.localizedDescription)
             }
         }
@@ -245,7 +254,7 @@ extension Account {
                 if remainingTime > 0, remainingTime <= duration, elapsed > 0, window.remaining > 0 {
                     let expectedUsed = elapsed / duration * 100
                     let reserve = expectedUsed - window.usedPercent
-                    if expectedUsed >= 3 || window.kind == "session" {
+                    if expectedUsed >= 3 {
                         let onPace = abs(reserve) <= 2
                         left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
                         pacePercent = onPace ? nil : 100 - expectedUsed
@@ -269,7 +278,7 @@ extension Account {
                 resetText: window.reset.map { "Resets \(UsageFormatter.resetCountdownDescription(from: $0, now: now))" },
                 detailText: nil, detailLeftText: left, detailRightText: right,
                 pacePercent: pacePercent, detailIsPaceDerived: left != nil, paceOnTop: paceOnTop,
-                warningMarkerPercents: window.isFable ? [] : [20, 50])
+                warningMarkerPercents: window.isFable ? [] : (UserDefaults.standard.array(forKey: "\(driver).\(window.kind).warningMarkers") as? [Double] ?? [20, 50]))
         }
         if driver != "codex", !metrics.contains(where: { $0.title == "Fable only" }) {
             metrics.append(.init(id: "fable-unavailable", title: "Fable only", percent: 0, percentStyle: .left,
@@ -288,6 +297,7 @@ extension Account {
             if planText?.hasPrefix(prefix) == true { planText = String(planText!.dropFirst(prefix.count)) }
         }
         if planText?.hasSuffix(" Subscription") == true { planText = String(planText!.dropLast(" Subscription".count)) }
+        if planText == "Subscription" || planText == "" { planText = nil }
         let age = limits.flatMap { parseDate($0.checkedAt) }.map { max(0, Int(now.timeIntervalSince($0))) }
         let updated: String
         if let age {
@@ -314,16 +324,21 @@ extension Account {
     }
 }
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let store = Store()
     var items: [String: NSStatusItem] = [:]
+    var menus: [String: NSMenu] = [:]
     var timer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         for driver in ["claudeAgent", "codex"] {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-            item.button?.target = self
-            item.button?.action = #selector(toggle(_:))
+            let menu = NSMenu()
+            menu.delegate = self
+            menu.appearance = NSApp.effectiveAppearance
+            menus[driver] = menu
+            item.menu = menu
+            menuNeedsUpdate(menu)
             item.button?.identifier = NSUserInterfaceItemIdentifier(driver)
             let iconName = driver == "codex" ? "codex" : "claude"
             let packagedResources = Bundle.main.resourceURL?.appendingPathComponent("T3QuotaBar_T3QuotaBar.bundle")
@@ -358,9 +373,14 @@ extension Account {
         }
     }
 
-    @objc func toggle(_ sender: NSStatusBarButton) {
-        guard let driver = sender.identifier?.rawValue else { return }
-        let menu = NSMenu()
+    func menuWillOpen(_ menu: NSMenu) {
+        menu.appearance = NSApp.effectiveAppearance
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.appearance = NSApp.effectiveAppearance
+        guard let driver = menus.first(where: { $0.value === menu })?.key else { return }
+        menu.removeAllItems()
         let accounts = store.quotas.accounts.filter { $0.driver == driver }
         for account in accounts {
             let model = account.menuCard(now: Date(), connected: store.connected)
@@ -380,18 +400,35 @@ extension Account {
             menu.addItem(.separator())
         }
         let statusItem = NSMenuItem(title: "Status Page", action: nil, keyEquivalent: "")
+        statusItem.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
         let statusMenu = NSMenu()
+        statusMenu.appearance = NSApp.effectiveAppearance
         statusMenu.addItem(withTitle: store.status[driver] ?? "Status unavailable", action: nil, keyEquivalent: "")
         let openStatus = statusMenu.addItem(withTitle: "Open status page…", action: #selector(openStatusPage(_:)), keyEquivalent: "")
         openStatus.target = self
         openStatus.representedObject = driver
         statusItem.submenu = statusMenu
         menu.addItem(statusItem)
+        if var summaryText = store.status[driver], summaryText != "Status unavailable" {
+            if let updated = store.statusUpdatedAt[driver] {
+                let minutes = max(0, Int(Date().timeIntervalSince(updated) / 60))
+                let age: String
+                if minutes >= 1440 { age = updated.formatted(.dateTime.hour().minute().locale(Locale(identifier: "en_US_POSIX"))) }
+                else { age = minutes < 1 ? "just now" : (minutes < 60 ? "\(minutes)m ago" : "\(minutes / 60)h ago") }
+                summaryText += " — Updated \(age)"
+            }
+            menu.addItem(makeWrappedSecondaryTextItem(text: summaryText, width: 310))
+        }
         menu.addItem(.separator())
         let reconnect = menu.addItem(withTitle: store.connected ? "Reconnect to T3 Code" : "Connect to T3 Code…", action: #selector(reconnect), keyEquivalent: "")
         reconnect.target = self
-        menu.addItem(withTitle: "Quit T3QuotaBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.minY), in: sender)
+        reconnect.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        let quit = menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.image = NSImage(systemSymbolName: "xmark.rectangle", accessibilityDescription: nil)
+        for item in [statusItem, reconnect, quit] {
+            item.image?.isTemplate = true
+            item.image?.size = NSSize(width: 16, height: 16)
+        }
     }
 
     @objc func reconnect() { store.start(pair: !store.connected) }
