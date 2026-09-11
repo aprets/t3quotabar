@@ -15,6 +15,7 @@ struct AppFailure: LocalizedError {
     @Published var message = "Connecting to T3 Code…"
     @Published var status: [String: String] = [:]
     @Published var statusUpdatedAt: [String: Date] = [:]
+    @Published var statusComponents: [String: [ProviderStatusComponent]] = [:]
     var onChange: (() -> Void)?
     private var connection: Task<Void, Never>?
     private var socket: URLSessionWebSocketTask?
@@ -231,6 +232,22 @@ struct AppFailure: LocalizedError {
                 statusUpdatedAt.removeValue(forKey: driver)
                 NSLog("T3QuotaBar status fetch failed for %@: %@", driver, error.localizedDescription)
             }
+            do {
+                if driver == "codex" {
+                    do {
+                        let data = try await request(URL(string: "https://\(host)/proxy/\(host)")!)
+                        statusComponents[driver] = try StatusFeed.parseIncidentIOSummary(data: data).components
+                        continue
+                    } catch {
+                        NSLog("T3QuotaBar grouped status fetch failed for %@; using Statuspage feed: %@", driver, error.localizedDescription)
+                    }
+                }
+                let data = try await request(URL(string: "https://\(host)/api/v2/components.json")!)
+                statusComponents[driver] = try StatusFeed.parseStatuspageComponents(data: data)
+            } catch {
+                statusComponents.removeValue(forKey: driver)
+                NSLog("T3QuotaBar status components fetch failed for %@: %@", driver, error.localizedDescription)
+            }
         }
     }
 }
@@ -379,6 +396,10 @@ extension Account {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.appearance = NSApp.effectiveAppearance
+        if let driver = menu.supermenu?.items.first(where: { $0.submenu === menu })?.representedObject as? String {
+            populateStatusMenu(menu, driver: driver)
+            return
+        }
         guard let driver = menus.first(where: { $0.value === menu })?.key else { return }
         menu.removeAllItems()
         let accounts = store.quotas.accounts.filter { $0.driver == driver }
@@ -403,10 +424,9 @@ extension Account {
         statusItem.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
         let statusMenu = NSMenu()
         statusMenu.appearance = NSApp.effectiveAppearance
-        statusMenu.addItem(withTitle: store.status[driver] ?? "Status unavailable", action: nil, keyEquivalent: "")
-        let openStatus = statusMenu.addItem(withTitle: "Open status page…", action: #selector(openStatusPage(_:)), keyEquivalent: "")
-        openStatus.target = self
-        openStatus.representedObject = driver
+        statusMenu.delegate = self
+        populateStatusMenu(statusMenu, driver: driver)
+        statusItem.representedObject = driver
         statusItem.submenu = statusMenu
         menu.addItem(statusItem)
         if var summaryText = store.status[driver], summaryText != "Status unavailable" {
@@ -429,6 +449,40 @@ extension Account {
             item.image?.isTemplate = true
             item.image?.size = NSSize(width: 16, height: 16)
         }
+    }
+
+    func populateStatusMenu(_ menu: NSMenu, driver: String) {
+        let components = store.statusComponents[driver] ?? []
+        if let hosting = menu.items.first?.view as? MenuHostingView<StatusComponentsMenuView>,
+           hosting.rootView.components == components { return }
+        menu.removeAllItems()
+        if !components.isEmpty {
+            final class HostingRelay {
+                weak var hosting: MenuHostingView<StatusComponentsMenuView>?
+            }
+            let relay = HostingRelay()
+            let width: CGFloat = 310
+            let listView = StatusComponentsMenuView(components: components, width: width, onToggle: {
+                DispatchQueue.main.async {
+                    guard let hosting = relay.hosting else { return }
+                    hosting.applyMeasuredHeight(width: width, height: hosting.measuredFittingHeight(width: width))
+                }
+            })
+            let hosting = MenuHostingView(rootView: listView)
+            relay.hosting = hosting
+            hosting.applyMeasuredHeight(width: width, height: hosting.measuredFittingHeight(width: width))
+            let listItem = NSMenuItem()
+            listItem.view = hosting
+            listItem.isEnabled = false
+            menu.addItem(listItem)
+            menu.addItem(.separator())
+        }
+        let openStatus = menu.addItem(withTitle: "Open Status Page", action: #selector(openStatusPage(_:)), keyEquivalent: "")
+        openStatus.target = self
+        openStatus.representedObject = driver
+        openStatus.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: nil)
+        openStatus.image?.isTemplate = true
+        openStatus.image?.size = NSSize(width: 16, height: 16)
     }
 
     @objc func reconnect() { store.start(pair: !store.connected) }

@@ -10,6 +10,13 @@ func L(_ key: String, _ arguments: CVarArg...) -> String {
     case "usage_percent_suffix_used": text = "used"
     case "quota_warnings_title": text = "Quota warnings"
     case "weekly_progress_work_days_title": text = "Work days"
+    case "status_operational": text = "Operational"
+    case "status_degraded": text = "Degraded performance"
+    case "status_partial_outage": text = "Partial outage"
+    case "status_major_outage": text = "Major outage"
+    case "status_critical_issue": text = "Critical issue"
+    case "status_maintenance": text = "Maintenance"
+    case "status_unknown": text = "Status unknown"
     default: text = key
     }
     return arguments.isEmpty ? text : String(format: text, arguments: arguments)
