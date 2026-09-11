@@ -4,18 +4,77 @@ import Testing
 @testable import T3QuotaBar
 
 struct CardTests {
+    @Test @MainActor func combinedItemShowsBothProvidersAndKeepsClaudeWeeklyInDropdown() throws {
+        _ = NSApplication.shared
+        let delegate = AppDelegate()
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        delegate.item = item
+        item.menu = delegate.menu
+        for (driver, name) in [("claudeAgent", "claude"), ("codex", "codex")] {
+            let url = try #require(Bundle.module.url(forResource: "ProviderIcon-\(name)", withExtension: "svg", subdirectory: "Resources"))
+            let icon = try #require(NSImage(contentsOf: url))
+            icon.size = NSSize(width: 18, height: 18)
+            icon.isTemplate = true
+            delegate.icons[driver] = icon
+        }
+        let checkedAt = ISO8601DateFormatter().string(from: Date())
+        let claude = try JSONDecoder().decode(Limits.self, from: Data("""
+        {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":5},{"id":"seven_day","kind":"weekly","label":"Weekly","usedPercent":10},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":20}]}
+        """.utf8))
+        let codex = try JSONDecoder().decode(Limits.self, from: Data("""
+        {"checkedAt":"\(checkedAt)","windows":[{"id":"primary","kind":"weekly","label":"Weekly","usedPercent":35}]}
+        """.utf8))
+        delegate.store.quotas.external = [
+            Account(id: "claude", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: claude, failed: false),
+            Account(id: "codex1", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: codex, failed: false),
+            Account(id: "codex2", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: codex, failed: false)
+        ]
+        delegate.store.connected = true
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel() == "Claude 5h 95% F 80%, Codex 65% / 65% remaining")
+        let image = try #require(item.button?.image)
+        #expect(image.isTemplate)
+        #expect(image.size.height == 18)
+        #expect(image.size.width > 200 && image.size.width < 300)
+        delegate.menuNeedsUpdate(delegate.menu)
+        #expect(delegate.menu.items.filter { $0 is MenuCardMenuItem }.count == 3)
+        #expect(delegate.menu.items.contains { $0.title == "Claude Status Page" })
+        #expect(delegate.menu.items.contains { $0.title == "Codex Status Page" })
+        #expect(delegate.store.quotas.external[0].menuCard(now: Date(), connected: true).metrics.map(\.title) == ["Session", "Weekly", "Fable only"])
+        if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
+            let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            let preview = NSButton(frame: NSRect(x: 0, y: 0, width: image.size.width + 12, height: 24))
+            preview.isBordered = false
+            preview.wantsLayer = true
+            preview.layer?.backgroundColor = NSColor.white.cgColor
+            preview.image = image
+            preview.imagePosition = .imageOnly
+            preview.contentTintColor = .black
+            let window = NSWindow(contentRect: preview.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.backgroundColor = .white
+            window.appearance = NSAppearance(named: .aqua)
+            window.contentView = preview
+            preview.layoutSubtreeIfNeeded()
+            let bitmap = try #require(preview.bitmapImageRepForCachingDisplay(in: preview.bounds))
+            preview.cacheDisplay(in: preview.bounds, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: output.appendingPathComponent("combined-item.png"))
+        }
+    }
+
     @Test @MainActor func fullMenuUsesApplicationAppearanceAndWrappedStatusSummary() {
         let app = NSApplication.shared
         let delegate = AppDelegate()
-        let menu = NSMenu()
-        delegate.menus["codex"] = menu
+        let menu = delegate.menu
         delegate.store.status["codex"] = "Partial System Degradation"
         delegate.store.statusUpdatedAt["codex"] = Date().addingTimeInterval(-3600)
         menu.appearance = NSAppearance(named: .darkAqua)
         delegate.menuNeedsUpdate(menu)
         delegate.menuWillOpen(menu)
         #expect(menu.appearance === app.effectiveAppearance)
-        let status = menu.items.first { $0.title == "Status Page" }
+        let status = menu.items.first { $0.title == "Codex Status Page" }
         #expect(status?.image != nil)
         #expect(status?.image?.size == NSSize(width: 16, height: 16))
         #expect(status?.image?.isTemplate == true)

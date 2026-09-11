@@ -27,7 +27,8 @@ struct QuotaTests {
         {"checkedAt":"2026-09-11T12:00:00Z","windows":[{"id":"seven_day","kind":"weekly","label":"Weekly","usedPercent":6}]}
         """.utf8))
         let account = Account(id: "a", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: limits, failed: false)
-        #expect(account.compact == "5h ? W 94% F ?")
+        #expect(account.compact == "5h ? F ?")
+        #expect(account.weekly?.remaining == 94)
     }
 
     @Test func duplicateNativeAccountIsHiddenButOtherEmailsRemain() {
@@ -43,6 +44,7 @@ struct QuotaTests {
         {"checkedAt":"2026-09-11T12:00:00Z","windows":[{"id":"seven_day_sonnet","kind":"weekly","label":"Weekly · Sonnet","usedPercent":6}]}
         """.utf8))
         let account = Account(id: "a", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: limits, failed: false)
-        #expect(account.compact == "5h ? W ? F ?")
+        #expect(account.compact == "5h ? F ?")
+        #expect(account.weekly == nil)
     }
 }

@@ -45,7 +45,7 @@ struct Account: Identifiable {
         let windows = limits?.windows ?? []
         let session = windows.first { $0.kind == "session" }
         let fable = windows.first { $0.isFable }
-        return [("5h", session), ("W", weekly), ("F", fable)].map { label, window in
+        return [("5h", session), ("F", fable)].map { label, window in
             "\(label) \(window.map { "\(Int($0.remaining.rounded()))%" } ?? "?")"
         }.joined(separator: " ")
     }

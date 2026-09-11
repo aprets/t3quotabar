@@ -343,30 +343,28 @@ extension Account {
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let store = Store()
-    var items: [String: NSStatusItem] = [:]
-    var menus: [String: NSMenu] = [:]
+    var item: NSStatusItem?
+    let menu = NSMenu()
+    var icons: [String: NSImage] = [:]
     var timer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.item = item
+        menu.delegate = self
+        menu.appearance = NSApp.effectiveAppearance
+        item.menu = menu
+        menuNeedsUpdate(menu)
+        item.button?.identifier = NSUserInterfaceItemIdentifier("combined")
         for driver in ["claudeAgent", "codex"] {
-            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-            let menu = NSMenu()
-            menu.delegate = self
-            menu.appearance = NSApp.effectiveAppearance
-            menus[driver] = menu
-            item.menu = menu
-            menuNeedsUpdate(menu)
-            item.button?.identifier = NSUserInterfaceItemIdentifier(driver)
             let iconName = driver == "codex" ? "codex" : "claude"
             let packagedResources = Bundle.main.resourceURL?.appendingPathComponent("T3QuotaBar_T3QuotaBar.bundle")
             let resourceBundle = packagedResources.flatMap { Bundle(url: $0) } ?? Bundle.module
             if let url = resourceBundle.url(forResource: "ProviderIcon-\(iconName)", withExtension: "svg", subdirectory: "Resources"), let image = NSImage(contentsOf: url) {
                 image.size = NSSize(width: 18, height: 18)
                 image.isTemplate = true
-                item.button?.image = image
-                item.button?.imagePosition = .imageLeading
+                icons[driver] = image
             }
-            items[driver] = item
         }
         store.onChange = { [weak self] in self?.updateTitles() }
         updateTitles()
@@ -381,13 +379,34 @@ extension Account {
     }
 
     func updateTitles() {
-        for (driver, item) in items {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let title = NSMutableAttributedString()
+        var descriptions: [String] = []
+        for driver in ["claudeAgent", "codex"] {
             let accounts = store.quotas.accounts.filter { $0.driver == driver }
             let stale = !store.connected || accounts.contains(where: \.stale)
-            item.button?.title = " " + (accounts.isEmpty ? "T3 ?" : accounts.map(\.compact).joined(separator: " / ")) + (stale ? " ·" : "")
-            item.button?.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-            item.button?.toolTip = stale ? "T3QuotaBar · stale or disconnected" : "T3QuotaBar · percentages remaining"
+            let readout = (accounts.isEmpty ? "?" : accounts.map(\.compact).joined(separator: " / ")) + (stale ? " ·" : "")
+            if title.length > 0 { title.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
+            if let icon = icons[driver] {
+                let attachment = NSTextAttachment()
+                attachment.image = icon
+                attachment.bounds = NSRect(x: 0, y: (font.capHeight - 18) / 2, width: 18, height: 18)
+                title.append(NSAttributedString(attachment: attachment))
+                title.append(NSAttributedString(string: " ", attributes: [.font: font]))
+            }
+            title.append(NSAttributedString(string: readout, attributes: [.font: font, .foregroundColor: NSColor.black]))
+            descriptions.append("\(driver == "codex" ? "Codex" : "Claude") \(readout)")
         }
+        let size = title.size()
+        let image = NSImage(size: NSSize(width: ceil(size.width), height: 18), flipped: false) { _ in
+            title.draw(at: NSPoint(x: 0, y: floor((18 - size.height) / 2)))
+            return true
+        }
+        image.isTemplate = true
+        item?.button?.image = image
+        item?.button?.imagePosition = .imageOnly
+        item?.button?.toolTip = descriptions.joined(separator: " · ") + " remaining"
+        item?.button?.setAccessibilityLabel(descriptions.joined(separator: ", ") + " remaining")
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -400,52 +419,56 @@ extension Account {
             populateStatusMenu(menu, driver: driver)
             return
         }
-        guard let driver = menus.first(where: { $0.value === menu })?.key else { return }
+        guard menu === self.menu else { return }
         menu.removeAllItems()
-        let accounts = store.quotas.accounts.filter { $0.driver == driver }
-        for account in accounts {
-            let model = account.menuCard(now: Date(), connected: store.connected)
-            let hosting = MenuHostingView(rootView: UsageMenuCardView(model: model, width: 310)
-                .foregroundStyle(MenuHighlightStyle.primary(false)))
-            let height = max(1, ceil(hosting.measuredFittingHeight(width: 310) + 6 + 1))
-            hosting.applyMeasuredHeight(width: 310, height: height)
-            let item = MenuCardMenuItem()
-            item.title = ""
-            item.view = hosting
-            item.isEnabled = false
-            menu.addItem(item)
-            menu.addItem(.separator())
-        }
-        if accounts.isEmpty {
-            menu.addItem(withTitle: store.message, action: nil, keyEquivalent: "")
-            menu.addItem(.separator())
-        }
-        let statusItem = NSMenuItem(title: "Status Page", action: nil, keyEquivalent: "")
-        statusItem.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
-        let statusMenu = NSMenu()
-        statusMenu.appearance = NSApp.effectiveAppearance
-        statusMenu.delegate = self
-        populateStatusMenu(statusMenu, driver: driver)
-        statusItem.representedObject = driver
-        statusItem.submenu = statusMenu
-        menu.addItem(statusItem)
-        if var summaryText = store.status[driver], summaryText != "Status unavailable" {
-            if let updated = store.statusUpdatedAt[driver] {
-                let minutes = max(0, Int(Date().timeIntervalSince(updated) / 60))
-                let age: String
-                if minutes >= 1440 { age = updated.formatted(.dateTime.hour().minute().locale(Locale(identifier: "en_US_POSIX"))) }
-                else { age = minutes < 1 ? "just now" : (minutes < 60 ? "\(minutes)m ago" : "\(minutes / 60)h ago") }
-                summaryText += " — Updated \(age)"
+        for driver in ["claudeAgent", "codex"] {
+            let accounts = store.quotas.accounts.filter { $0.driver == driver }
+            for account in accounts {
+                let model = account.menuCard(now: Date(), connected: store.connected)
+                let hosting = MenuHostingView(rootView: UsageMenuCardView(model: model, width: 310)
+                    .foregroundStyle(MenuHighlightStyle.primary(false)))
+                let height = max(1, ceil(hosting.measuredFittingHeight(width: 310) + 6 + 1))
+                hosting.applyMeasuredHeight(width: 310, height: height)
+                let item = MenuCardMenuItem()
+                item.title = ""
+                item.view = hosting
+                item.isEnabled = false
+                menu.addItem(item)
+                menu.addItem(.separator())
             }
-            menu.addItem(makeWrappedSecondaryTextItem(text: summaryText, width: 310))
+            if accounts.isEmpty {
+                menu.addItem(withTitle: store.message, action: nil, keyEquivalent: "")
+                menu.addItem(.separator())
+            }
+            let statusItem = NSMenuItem(title: driver == "codex" ? "Codex Status Page" : "Claude Status Page", action: nil, keyEquivalent: "")
+            statusItem.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
+            statusItem.image?.isTemplate = true
+            statusItem.image?.size = NSSize(width: 16, height: 16)
+            let statusMenu = NSMenu()
+            statusMenu.appearance = NSApp.effectiveAppearance
+            statusMenu.delegate = self
+            populateStatusMenu(statusMenu, driver: driver)
+            statusItem.representedObject = driver
+            statusItem.submenu = statusMenu
+            menu.addItem(statusItem)
+            if var summaryText = store.status[driver], summaryText != "Status unavailable" {
+                if let updated = store.statusUpdatedAt[driver] {
+                    let minutes = max(0, Int(Date().timeIntervalSince(updated) / 60))
+                    let age: String
+                    if minutes >= 1440 { age = updated.formatted(.dateTime.hour().minute().locale(Locale(identifier: "en_US_POSIX"))) }
+                    else { age = minutes < 1 ? "just now" : (minutes < 60 ? "\(minutes)m ago" : "\(minutes / 60)h ago") }
+                    summaryText += " — Updated \(age)"
+                }
+                menu.addItem(makeWrappedSecondaryTextItem(text: summaryText, width: 310))
+            }
+            menu.addItem(.separator())
         }
-        menu.addItem(.separator())
         let reconnect = menu.addItem(withTitle: store.connected ? "Reconnect to T3 Code" : "Connect to T3 Code…", action: #selector(reconnect), keyEquivalent: "")
         reconnect.target = self
         reconnect.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         let quit = menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.image = NSImage(systemSymbolName: "xmark.rectangle", accessibilityDescription: nil)
-        for item in [statusItem, reconnect, quit] {
+        for item in [reconnect, quit] {
             item.image?.isTemplate = true
             item.image?.size = NSSize(width: 16, height: 16)
         }

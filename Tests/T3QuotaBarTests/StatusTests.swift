@@ -54,10 +54,9 @@ struct StatusTests {
     @Test @MainActor func statusSubmenuHydratesAfterRootOpensAndClearsUnavailableComponents() {
         _ = NSApplication.shared
         let delegate = AppDelegate()
-        let menu = NSMenu()
-        delegate.menus["codex"] = menu
+        let menu = delegate.menu
         delegate.menuNeedsUpdate(menu)
-        let submenu = menu.items.first { $0.title == "Status Page" }!.submenu!
+        let submenu = menu.items.first { $0.title == "Codex Status Page" }!.submenu!
         #expect(submenu.items.first?.title == "Open Status Page")
         let child = ProviderStatusComponent(id: "api", name: "API", indicator: .none, status: "operational")
         delegate.store.statusComponents["codex"] = [ProviderStatusComponent(id: "codex", name: "Codex", indicator: .none, status: "operational", children: [child])]

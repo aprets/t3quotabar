@@ -8,8 +8,8 @@ T3QuotaBar displays the quota information T3 Code already collects, including na
 
 ## Interface
 
-- Separate Claude and Codex menu-bar items.
-- Claude session, weekly, and Fable-specific percentages remaining.
+- One menu-bar item with Claude and Codex readouts side by side.
+- Claude session and Fable-specific percentages remaining, with the general weekly limit in the dropdown.
 - Weekly percentages for every Codex account.
 - A dropdown with per-account cards, reset countdowns, data age, and available reset credits.
 - Even-pace reserve estimates when T3 supplies the window duration.
@@ -25,7 +25,7 @@ bash scripts/build-app.sh
 open dist/T3QuotaBar.app
 ```
 
-Copy `dist/T3QuotaBar.app` to Applications to install. Click either menu item, then **Connect to T3 Code**. The app invokes T3's bundled `pair` CLI and saves a read-only bearer session in macOS Keychain. It supports T3 Code and T3 Code Alpha installed in `/Applications`, using the default `~/.t3` data directory.
+Copy `dist/T3QuotaBar.app` to Applications to install. Click the menu-bar item, then **Connect to T3 Code**. The app invokes T3's bundled `pair` CLI and saves a read-only bearer session in macOS Keychain. It supports T3 Code and T3 Code Alpha installed in `/Applications`, using the default `~/.t3` data directory.
 
 To check the connection without printing account emails or credentials:
 
