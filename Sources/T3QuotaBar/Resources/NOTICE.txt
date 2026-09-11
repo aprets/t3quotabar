@@ -1,0 +1,3 @@
+T3QuotaBar is an independent companion to T3 Code.
+The account-card layout is inspired by CodexBar (https://github.com/steipete/CodexBar).
+Provider icons are copied from CodexBar, under its MIT license included alongside them.

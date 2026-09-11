@@ -15,12 +15,12 @@ These findings were inspected against T3 Code commit `211618fd9fe39d3dde01171a68
 - [Usage contracts](https://github.com/pingdotgg/t3code/blob/211618fd9fe39d3dde01171a6856ce9f633571c9/packages/contracts/src/providerUsageLimits.ts) describe account windows, timestamps, unavailable states, and reset credits.
 - [Environment authentication](https://github.com/pingdotgg/t3code/blob/211618fd9fe39d3dde01171a6856ce9f633571c9/docs/internals/environment-auth.md) describes pairing, bearer sessions, and WebSocket tickets.
 
-The initial investigation confirmed that the installed server advertised usage-limit support. An authenticated connection from a separate app has not yet been tested.
+The authenticated connection has been tested against the installed server. It supplies one Claude CPA account with session, weekly and Fable windows, and two Codex CPA accounts with weekly limits and reset credits.
 
 ## Connection
 
 1. Locate the configured T3 server. Desktop normally starts at loopback port 3773 and scans upward when it is occupied. Verify the environment identity using `/.well-known/t3/environment` before sending credentials.
-2. Accept a pairing credential generated in T3's Connections settings. Request only `orchestration:read` and store the resulting bearer token in Keychain.
+2. Invoke the installed T3 desktop app's bundled `pair` CLI when the user clicks Connect. Exchange its credential for only `orchestration:read` and store the resulting bearer token in Keychain.
 3. Exchange the credential through `POST /oauth/token`, then obtain a ticket through `POST /api/auth/websocket-ticket`.
 4. Connect to `/ws?wsTicket=...` and subscribe to server configuration with `usageLimitSources: true`.
 5. Read the initial native provider state and subsequent provider updates, together with `usageLimitSourcesUpdated` for CPA accounts.
@@ -30,6 +30,8 @@ T3 uses Effect RPC with JSON serialization. Implement only the required request,
 The minimum read scope is broader than quota access: it also permits reading environment files and threads. The app should use only quota-related data and must never log tokens or unrelated configuration payloads.
 
 Bearer sessions default to 30 days. A consumed pairing credential cannot simply be exchanged again. Handle expiration with an explicit re-pair flow unless T3 provides a supported renewal mechanism. Reconnection needs a new WebSocket ticket.
+
+Review confirmed that subscribing triggers T3's native-provider probe. Reconnection therefore uses a one-minute minimum backoff, capped at five minutes. Authorization and incompatible-payload failures stop automatic retries. CPA polling itself follows T3's foreground/background activity policy; this app does not send activity leases.
 
 ## Display behavior
 
