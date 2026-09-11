@@ -226,75 +226,81 @@ struct AppFailure: LocalizedError {
     }
 }
 
-struct QuotaCards: View {
-    @ObservedObject var store: Store
-    let driver: String
-    var color: Color { driver == "codex" ? Color(red: 0.27, green: 0.65, blue: 0.7) : Color(red: 0.8, green: 0.46, blue: 0.34) }
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if !store.connected { Label(store.message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.callout) }
-                        let accounts = store.quotas.accounts.filter { $0.driver == driver }
-                        if accounts.isEmpty { Text("No \(driver == "codex" ? "Codex" : "Claude") quota snapshots yet.").foregroundStyle(.secondary) }
-                        ForEach(accounts) { account in
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text(account.name).font(.system(size: 14, weight: .bold))
-                                    Spacer()
-                                    Text(account.email ?? account.source).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                HStack {
-                                    if let checked = account.limits.flatMap({ parseDate($0.checkedAt) }) {
-                                        Text("Updated \(checked, style: .relative) ago")
-                                    } else { Text("Not updated yet") }
-                                    Spacer()
-                                    Text(account.plan ?? account.source).lineLimit(1)
-                                }.font(.footnote).foregroundStyle(.secondary)
-                                if account.stale || !store.connected { Text("Stale · showing last known values").font(.caption).foregroundStyle(.orange) }
-                                Divider()
-                                ForEach(account.limits?.windows ?? []) { window in
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        HStack {
-                                            Text("\(window.label) \(Int(window.remaining.rounded()))% left").font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
-                                            Spacer()
-                                            if let reset = window.reset {
-                                                if reset > context.date { Text("Resets \(reset, style: .relative)") }
-                                                else { Text("Awaiting refresh") }
-                                            }
-                                        }
-                                        .font(.caption).foregroundStyle(.secondary)
-                                        GeometryReader { geometry in
-                                            ZStack(alignment: .leading) {
-                                                Capsule().fill(.quaternary)
-                                                Capsule().fill(color).frame(width: geometry.size.width * window.remaining / 100)
-                                            }
-                                        }.frame(height: 6)
-                                        if let minutes = window.windowDurationMins, minutes > 0, let reset = window.reset, reset > context.date {
-                                            let timeRemaining = min(1, reset.timeIntervalSince(context.date) / (minutes * 60))
-                                            let reserve = window.remaining - timeRemaining * 100
-                                            Text("\(Int(abs(reserve).rounded()))% \(reserve >= 0 ? "ahead of" : "behind") even pace · estimate").font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }.padding(.vertical, 3)
-                                }
-                                if driver != "codex", !(account.limits?.windows.contains(where: \.isFable) ?? false) {
-                                    Text("Fable limit unavailable").font(.caption).foregroundStyle(.secondary)
-                                }
-                                if let credits = account.limits?.resetCredits {
-                                    Divider()
-                                    HStack {
-                                        Text("\(credits.availableCount) reset credits available").font(.system(size: 12, weight: .semibold))
-                                        Spacer()
-                                        if let expiry = credits.nextExpiresAt.flatMap(parseDate) { Text("Next expires \(expiry, style: .relative)").font(.caption).foregroundStyle(.secondary) }
-                                    }
-                                }
+extension Account {
+    func menuCard(now: Date, connected: Bool) -> UsageMenuCardView.Model {
+        var metrics = (limits?.windows ?? []).map { window -> UsageMenuCardView.Model.Metric in
+            let title: String
+            if window.isFable { title = "Fable only" }
+            else if window.id == "seven_day" { title = "Weekly" }
+            else if window.kind == "session" { title = "Session" }
+            else { title = window.label }
+            var pacePercent: Double?
+            var paceOnTop = true
+            var left: String?
+            var right: String?
+            if let minutes = window.windowDurationMins, minutes > 0, let reset = window.reset {
+                let duration = minutes * 60
+                let remainingTime = reset.timeIntervalSince(now)
+                let elapsed = duration - remainingTime
+                if remainingTime > 0, remainingTime <= duration, elapsed > 0, window.remaining > 0 {
+                    let expectedUsed = elapsed / duration * 100
+                    let reserve = expectedUsed - window.usedPercent
+                    if expectedUsed >= 3 || window.kind == "session" {
+                        let onPace = abs(reserve) <= 2
+                        left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
+                        pacePercent = onPace ? nil : 100 - expectedUsed
+                        paceOnTop = reserve >= 0
+                        if reserve >= 0 {
+                            right = "Lasts until reset"
+                            let projectedUsage = window.usedPercent * remainingTime / elapsed
+                            if driver == "codex", reserve > 15, projectedUsage > 0, window.remaining / projectedUsage >= 1.5 {
+                                right = "Lasts until reset · 1.5× headroom"
                             }
-                            Divider()
+                        } else if window.usedPercent > 0 {
+                            let eta = window.remaining * elapsed / window.usedPercent
+                            let countdown = UsageFormatter.resetCountdownDescription(from: now.addingTimeInterval(eta), now: now)
+                            right = window.kind == "session" ? "Projected empty \(countdown)" : "Runs out \(countdown)"
                         }
-                    }.padding(.horizontal, 20).padding(.vertical, 10)
-            }.frame(width: 340).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            return .init(
+                id: window.id, title: title, percent: window.remaining, percentStyle: .left,
+                resetText: window.reset.map { "Resets \(UsageFormatter.resetCountdownDescription(from: $0, now: now))" },
+                detailText: nil, detailLeftText: left, detailRightText: right,
+                pacePercent: pacePercent, detailIsPaceDerived: left != nil, paceOnTop: paceOnTop,
+                warningMarkerPercents: window.isFable ? [] : [20, 50])
         }
+        if driver != "codex", !metrics.contains(where: { $0.title == "Fable only" }) {
+            metrics.append(.init(id: "fable-unavailable", title: "Fable only", percent: 0, percentStyle: .left,
+                                 statusText: "Unavailable", resetText: nil, detailText: nil,
+                                 detailLeftText: nil, detailRightText: nil, pacePercent: nil, paceOnTop: true))
+        }
+        let credits = limits?.resetCredits.map { credits in
+            let items: [CodexResetCreditPresentationItem] = credits.nextExpiresAt.flatMap(parseDate).map { expiry in
+                let countdown = UsageFormatter.resetCountdownDescription(from: expiry, now: now)
+                return [.init(expiryText: "Next credit expires \(countdown)", compactExpiryText: countdown.hasPrefix("in ") ? String(countdown.dropFirst(3)) : countdown)]
+            } ?? []
+            return CodexResetCreditsPresentation(text: "\(credits.availableCount) available", items: items)
+        }
+        var planText = plan
+        for prefix in ["ChatGPT ", "Claude "] {
+            if planText?.hasPrefix(prefix) == true { planText = String(planText!.dropFirst(prefix.count)) }
+        }
+        if planText?.hasSuffix(" Subscription") == true { planText = String(planText!.dropLast(" Subscription".count)) }
+        let age = limits.flatMap { parseDate($0.checkedAt) }.map { max(0, Int(now.timeIntervalSince($0))) }
+        let updated: String
+        if let age {
+            if age < 60 { updated = "Updated just now" }
+            else if age < 3600 { updated = "Updated \(age / 60)m ago" }
+            else { updated = "Updated \(age / 3600)h ago" }
+        } else { updated = "Not updated yet" }
+        let stale = self.stale || !connected
+        return .init(providerName: name, email: email ?? source,
+                     subtitleText: stale ? "Stale · \(updated.lowercased())" : updated,
+                     isStale: stale, planText: planText, metrics: metrics, codexResetCredits: credits,
+                     placeholder: metrics.isEmpty ? "Quota unavailable" : nil,
+                     progressColor: driver == "codex" ? Color(red: 73 / 255, green: 163 / 255, blue: 176 / 255) : Color(red: 204 / 255, green: 124 / 255, blue: 94 / 255))
     }
 }
 
@@ -355,11 +361,24 @@ struct QuotaCards: View {
     @objc func toggle(_ sender: NSStatusBarButton) {
         guard let driver = sender.identifier?.rawValue else { return }
         let menu = NSMenu()
-        let cards = NSHostingView(rootView: QuotaCards(store: store, driver: driver))
-        cards.frame = NSRect(origin: .zero, size: cards.fittingSize)
-        let cardItem = NSMenuItem()
-        cardItem.view = cards
-        menu.addItem(cardItem)
+        let accounts = store.quotas.accounts.filter { $0.driver == driver }
+        for account in accounts {
+            let model = account.menuCard(now: Date(), connected: store.connected)
+            let hosting = MenuHostingView(rootView: UsageMenuCardView(model: model, width: 310)
+                .foregroundStyle(MenuHighlightStyle.primary(false)))
+            let height = max(1, ceil(hosting.measuredFittingHeight(width: 310) + 6 + 1))
+            hosting.applyMeasuredHeight(width: 310, height: height)
+            let item = MenuCardMenuItem()
+            item.title = ""
+            item.view = hosting
+            item.isEnabled = false
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
+        if accounts.isEmpty {
+            menu.addItem(withTitle: store.message, action: nil, keyEquivalent: "")
+            menu.addItem(.separator())
+        }
         let statusItem = NSMenuItem(title: "Status Page", action: nil, keyEquivalent: "")
         let statusMenu = NSMenu()
         statusMenu.addItem(withTitle: store.status[driver] ?? "Status unavailable", action: nil, keyEquivalent: "")

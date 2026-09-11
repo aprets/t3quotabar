@@ -15,7 +15,7 @@ T3QuotaBar displays the quota information T3 Code already collects, including na
 - Even-pace reserve estimates when T3 supplies the window duration.
 - Provider status and links to the official status pages.
 
-The interface borrows account-card patterns and provider icons from [CodexBar](https://github.com/steipete/CodexBar). Its MIT license is included with the copied icons.
+The interface uses copied [CodexBar](https://github.com/steipete/CodexBar) card views, progress bars, menu hosting, layout and icons. Its MIT license is bundled in the app. [Source provenance](PROVENANCE.md) lists the exact upstream revision and adaptations for T3.
 
 ## Build and run
 
