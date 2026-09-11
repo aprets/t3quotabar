@@ -6,6 +6,10 @@ Native macOS app. Requires macOS 14 or newer and a running local T3 Code desktop
 
 T3QuotaBar displays the quota information T3 Code already collects, including native provider accounts and accounts behind CLIProxyAPI. It reads T3's existing snapshots instead of polling provider quota endpoints itself.
 
+<img src="Assets/Screenshot.png" alt="T3QuotaBar showing combined Claude and Codex usage in the macOS menu bar, with per-account quotas and provider status in the dropdown" width="360">
+
+Account labels in this screenshot have been anonymized.
+
 ## Interface
 
 - One menu-bar item with Claude and Codex readouts side by side.
