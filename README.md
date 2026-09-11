@@ -25,7 +25,7 @@ The interface uses copied [CodexBar](https://github.com/steipete/CodexBar) card 
 
 [Download T3QuotaBar for Apple Silicon](https://github.com/aprets/t3quotabar/releases/download/latest/T3QuotaBar-macOS-arm64.zip).
 
-Every successful `main` build updates the same [Latest build prerelease](https://github.com/aprets/t3quotabar/releases/tag/latest). Downloads do not require a GitHub account and do not expire after 30 days.
+Every successful `main` build updates the same [Latest build release](https://github.com/aprets/t3quotabar/releases/tag/latest). Downloads do not require a GitHub account and do not expire after 30 days.
 
 Unzip it and move `T3QuotaBar.app` to Applications. These builds are ad-hoc signed, not notarized. If macOS blocks opening it, use **System Settings → Privacy & Security → Open Anyway** after attempting to launch. Updates may require connecting to T3 Code again because CI builds do not share a stable signing identity.
 
