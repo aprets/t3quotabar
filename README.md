@@ -21,6 +21,12 @@ Account labels in this screenshot have been anonymized.
 
 The interface uses copied [CodexBar](https://github.com/steipete/CodexBar) card views, progress bars, menu hosting, layout and icons. Its MIT license is bundled in the app. [Source provenance](PROVENANCE.md) lists the exact upstream revision and adaptations for T3.
 
+## Download
+
+Every push to `main` builds an Apple Silicon app. Open the latest successful [Build macOS app run](https://github.com/aprets/t3quotabar/actions/workflows/build.yml), then download `T3QuotaBar-macOS-arm64.zip` under **Artifacts**. GitHub requires signing in to download artifacts, which are kept for 30 days.
+
+Unzip it and move `T3QuotaBar.app` to Applications. These builds are ad-hoc signed, not notarized. If macOS blocks opening it, use **System Settings → Privacy & Security → Open Anyway** after attempting to launch. Updates may require connecting to T3 Code again because CI builds do not share a stable signing identity.
+
 ## Build and run
 
 ```sh
@@ -58,3 +64,7 @@ Native and CPA entries with the same provider and email are shown once, preferri
 See [implementation notes](IMPLEMENTATION.md) for the inspected protocol, limitations, and first-build checks.
 
 T3QuotaBar is an independent project and is not affiliated with T3 Code, OpenAI, or Anthropic.
+
+## License
+
+[MIT](LICENSE). Copied CodexBar code and assets retain their [original MIT notice](Sources/T3QuotaBar/Resources/CodexBar-LICENSE).

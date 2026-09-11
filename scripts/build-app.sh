@@ -8,6 +8,7 @@ cp .build/release/T3QuotaBar "$app/Contents/MacOS/"
 cp -R .build/release/T3QuotaBar_T3QuotaBar.bundle "$app/Contents/Resources/"
 cp Info.plist "$app/Contents/Info.plist"
 cp Sources/T3QuotaBar/Resources/AppIcon.icns "$app/Contents/Resources/"
+cp LICENSE "$app/Contents/Resources/T3QuotaBar-LICENSE"
 identity="${CODE_SIGN_IDENTITY:--}"
 if [[ "$identity" == - && -f .signing-identity ]]; then
     identity="$(< .signing-identity)"
