@@ -31,12 +31,12 @@ struct CardTests {
         ]
         delegate.store.connected = true
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel() == "Claude 5h 95% F 80%, Codex 65% / 65% remaining")
+        #expect(item.button?.accessibilityLabel() == "Claude 80%, Codex 65% / 65% remaining")
         #expect(item.button?.toolTip == nil)
         let image = try #require(item.button?.image)
         #expect(image.isTemplate)
         #expect(image.size.height == 18)
-        #expect(image.size.width > 200 && image.size.width < 300)
+        #expect(image.size.width > 100 && image.size.width < 200)
         delegate.menuNeedsUpdate(delegate.menu)
         #expect(delegate.menu.items.filter { $0 is MenuCardMenuItem }.count == 3)
         #expect(delegate.menu.items.contains { $0.title == "Claude Status Page" })
@@ -48,7 +48,7 @@ struct CardTests {
         delegate.store.quotas.external.append(Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: secondClaude, failed: false))
         delegate.store.quotas.external.append(Account(id: "claude3", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: nil, failed: false))
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel() == "Claude 5h 95% / 78% / ? F 80% / 48% / ? ·, Codex 65% / 65% remaining")
+        #expect(item.button?.accessibilityLabel() == "Claude 80% / 48% / ? ·, Codex 65% / 65% remaining")
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -68,6 +68,30 @@ struct CardTests {
             preview.cacheDisplay(in: preview.bounds, to: bitmap)
             let png = try #require(bitmap.representation(using: .png, properties: [:]))
             try png.write(to: output.appendingPathComponent("combined-item.png"))
+        }
+    }
+
+    @Test @MainActor func claudeWarningShowsOnlySessionsBelowTwentyFiveAndDisappearsAfterReset() throws {
+        _ = NSApplication.shared
+        let delegate = AppDelegate()
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        delegate.item = item
+        delegate.store.connected = true
+        let checkedAt = ISO8601DateFormatter().string(from: Date())
+        for (used, expected) in [
+            ([82, 75, 78], " 5h! 18% / 22%"),
+            ([100, 75, 0], " 5h! 0%"),
+            ([0, 75, 0], "")
+        ] {
+            delegate.store.quotas.external = try used.enumerated().map { index, usedPercent in
+                let limits = try JSONDecoder().decode(Limits.self, from: Data("""
+                {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":\(usedPercent)},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":\(index * 10)}]}
+                """.utf8))
+                return Account(id: "claude\(index)", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: limits, failed: false)
+            }
+            delegate.updateTitles()
+            #expect(item.button?.accessibilityLabel() == "Claude 100% / 90% / 80%\(expected), Codex ? remaining")
         }
     }
 

@@ -442,13 +442,16 @@ extension Account {
             let stale = !store.connected || accounts.contains(where: \.stale)
             let values: String
             if driver == "claudeAgent", !accounts.isEmpty {
-                values = ["5h", "F"].map { label in
-                    let percentages = accounts.map { account in
-                        let window = account.limits?.windows.first { label == "5h" ? $0.kind == "session" : $0.isFable }
-                        return window.map { "\(Int($0.remaining.rounded()))%" } ?? "?"
-                    }.joined(separator: " / ")
-                    return "\(label) \(percentages)"
-                }.joined(separator: " ")
+                let fable = accounts.map { account in
+                    let window = account.limits?.windows.first { $0.isFable }
+                    return window.map { "\(Int($0.remaining.rounded()))%" } ?? "?"
+                }.joined(separator: " / ")
+                let lowSessions = accounts.compactMap { account -> String? in
+                    guard let window = account.limits?.windows.first(where: { $0.kind == "session" }),
+                          window.remaining < 25 else { return nil }
+                    return "\(Int(window.remaining.rounded()))%"
+                }.joined(separator: " / ")
+                values = fable + (lowSessions.isEmpty ? "" : " 5h! \(lowSessions)")
             } else {
                 values = accounts.isEmpty ? "?" : accounts.map(\.compact).joined(separator: " / ")
             }
