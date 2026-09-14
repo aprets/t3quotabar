@@ -390,6 +390,7 @@ extension Account {
     let menu = NSMenu()
     var icons: [String: NSImage] = [:]
     var timer: Timer?
+    var preferences = UserDefaults.standard
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -440,20 +441,26 @@ extension Account {
         for driver in ["claudeAgent", "codex"] {
             let accounts = store.quotas.accounts.filter { $0.driver == driver }
             let stale = !store.connected || accounts.contains(where: \.stale)
-            let values: String
-            if driver == "claudeAgent", !accounts.isEmpty {
-                let fable = accounts.map { account in
-                    let window = account.limits?.windows.first { $0.isFable }
-                    return window.map { "\(Int($0.remaining.rounded()))%" } ?? "?"
+            let remaining = accounts.map { account in
+                driver == "claudeAgent" ? account.limits?.windows.first { $0.isFable }?.remaining : account.weekly?.remaining
+            }
+            var values: String
+            if preferences.bool(forKey: "sumAccountLimits") {
+                let known = remaining.compactMap { $0 }
+                values = known.isEmpty ? "?" : "\(Int(known.reduce(0, +).rounded()))%"
+                if !known.isEmpty, known.count < remaining.count { values += " + ?" }
+            } else {
+                values = remaining.isEmpty ? "?" : remaining.map { value in
+                    value.map { "\(Int($0.rounded()))%" } ?? "?"
                 }.joined(separator: " / ")
+            }
+            if driver == "claudeAgent" {
                 let lowSessions = accounts.compactMap { account -> String? in
                     guard let window = account.limits?.windows.first(where: { $0.kind == "session" }),
                           window.remaining < 25 else { return nil }
                     return "\(Int(window.remaining.rounded()))%"
                 }.joined(separator: " / ")
-                values = fable + (lowSessions.isEmpty ? "" : " 5h! \(lowSessions)")
-            } else {
-                values = accounts.isEmpty ? "?" : accounts.map(\.compact).joined(separator: " / ")
+                if !lowSessions.isEmpty { values += " 5h! \(lowSessions)" }
             }
             let readout = values + (stale ? " ·" : "")
             if title.length > 0 { title.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
@@ -535,6 +542,9 @@ extension Account {
         if let issue = store.refreshIssue {
             menu.addItem(makeWrappedSecondaryTextItem(text: issue, width: 310))
         }
+        let sum = menu.addItem(withTitle: "Sum account limits", action: #selector(toggleSumAccountLimits), keyEquivalent: "")
+        sum.target = self
+        sum.state = preferences.bool(forKey: "sumAccountLimits") ? .on : .off
         let reconnect = menu.addItem(withTitle: store.connected ? "Reconnect to T3 Code" : "Connect to T3 Code…", action: #selector(reconnect), keyEquivalent: "")
         reconnect.target = self
         reconnect.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
@@ -544,6 +554,11 @@ extension Account {
             item.image?.isTemplate = true
             item.image?.size = NSSize(width: 16, height: 16)
         }
+    }
+
+    @objc func toggleSumAccountLimits() {
+        preferences.set(!preferences.bool(forKey: "sumAccountLimits"), forKey: "sumAccountLimits")
+        updateTitles()
     }
 
     func populateStatusMenu(_ menu: NSMenu, driver: String) {

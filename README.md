@@ -16,6 +16,7 @@ Account labels in this screenshot have been anonymized.
 - Claude Fable-specific percentages remaining, without a label: `48% / 80% / 100%`. All limits remain in the dropdown.
 - A `5h! 18% / 22%` warning appears only for accounts with session remaining below 25%, preserving their relative account order. It disappears when no sessions are below 25%.
 - Weekly percentages for every Codex account.
+- “Sum account limits” above Reconnect switches each provider to a total, such as `225%` instead of `48% / 80% / 97%`. The choice persists across restarts and defaults to off. Totals add account percentages without plan weighting and describe remaining capacity now, not a shared reset period. Missing values appear as `+ ?`; low-session warnings stay per account.
 - A dropdown with per-account cards, reset countdowns, data age, and available reset credits.
 - Even-pace reserve estimates when T3 supplies the window duration.
 - Provider status and links to the official status pages.

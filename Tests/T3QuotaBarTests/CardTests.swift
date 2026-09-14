@@ -95,6 +95,40 @@ struct CardTests {
         }
     }
 
+    @Test @MainActor func sumTogglePersistsTotalsWithoutHidingLowSessionsOrMissingAccounts() throws {
+        _ = NSApplication.shared
+        let delegate = AppDelegate()
+        let suite = "T3QuotaBarTests.\(UUID().uuidString)"
+        let preferences = try #require(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        delegate.preferences = preferences
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        delegate.item = item
+        delegate.store.connected = true
+        let checkedAt = ISO8601DateFormatter().string(from: Date())
+        for (index, driver) in ["claudeAgent", "claudeAgent", "codex", "codex"].enumerated() {
+            let limits = try JSONDecoder().decode(Limits.self, from: Data("""
+            {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":82},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":20}]}
+            """.utf8))
+            delegate.store.quotas.external.append(Account(id: "account\(index)", driver: driver, name: driver, email: nil, plan: nil, source: "CPA", limits: limits, failed: false))
+        }
+        delegate.toggleSumAccountLimits()
+        #expect(UserDefaults(suiteName: suite)?.bool(forKey: "sumAccountLimits") == true)
+        #expect(item.button?.accessibilityLabel() == "Claude 160% 5h! 18% / 18%, Codex 160% remaining")
+        delegate.menuNeedsUpdate(delegate.menu)
+        let toggleIndex = try #require(delegate.menu.items.firstIndex { $0.title == "Sum account limits" })
+        #expect(delegate.menu.items[toggleIndex].state == .on)
+        #expect(delegate.menu.items[toggleIndex + 1].title == "Reconnect to T3 Code")
+        #expect(delegate.menu.items.filter { $0 is MenuCardMenuItem }.count == 4)
+        delegate.store.quotas.external[0].limits = nil
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel() == "Claude 80% + ? 5h! 18% ·, Codex 160% remaining")
+        delegate.toggleSumAccountLimits()
+        #expect(preferences.bool(forKey: "sumAccountLimits") == false)
+        #expect(item.button?.accessibilityLabel() == "Claude ? / 80% 5h! 18% ·, Codex 80% / 80% remaining")
+    }
+
     @Test @MainActor func fullMenuUsesApplicationAppearanceAndWrappedStatusSummary() {
         let app = NSApplication.shared
         let delegate = AppDelegate()
