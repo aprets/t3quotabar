@@ -14,6 +14,7 @@ Account labels in this screenshot have been anonymized.
 
 - One menu-bar item with Claude and Codex readouts side by side.
 - Claude session and Fable-specific percentages remaining, with the general weekly limit in the dropdown.
+- Multiple Claude accounts share each label: `5h 86%/78%/100% F 48%/80%/100%`, using the same account order in both groups.
 - Weekly percentages for every Codex account.
 - A dropdown with per-account cards, reset countdowns, data age, and available reset credits.
 - Even-pace reserve estimates when T3 supplies the window duration.

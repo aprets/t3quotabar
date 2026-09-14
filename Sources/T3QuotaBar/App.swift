@@ -385,7 +385,19 @@ extension Account {
         for driver in ["claudeAgent", "codex"] {
             let accounts = store.quotas.accounts.filter { $0.driver == driver }
             let stale = !store.connected || accounts.contains(where: \.stale)
-            let readout = (accounts.isEmpty ? "?" : accounts.map(\.compact).joined(separator: " / ")) + (stale ? " ·" : "")
+            let values: String
+            if driver == "claudeAgent", !accounts.isEmpty {
+                values = ["5h", "F"].map { label in
+                    let percentages = accounts.map { account in
+                        let window = account.limits?.windows.first { label == "5h" ? $0.kind == "session" : $0.isFable }
+                        return window.map { "\(Int($0.remaining.rounded()))%" } ?? "?"
+                    }.joined(separator: "/")
+                    return "\(label) \(percentages)"
+                }.joined(separator: " ")
+            } else {
+                values = accounts.isEmpty ? "?" : accounts.map(\.compact).joined(separator: " / ")
+            }
+            let readout = values + (stale ? " ·" : "")
             if title.length > 0 { title.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
             if let icon = icons[driver] {
                 let attachment = NSTextAttachment()

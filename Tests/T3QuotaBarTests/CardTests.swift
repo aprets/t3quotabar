@@ -42,6 +42,13 @@ struct CardTests {
         #expect(delegate.menu.items.contains { $0.title == "Claude Status Page" })
         #expect(delegate.menu.items.contains { $0.title == "Codex Status Page" })
         #expect(delegate.store.quotas.external[0].menuCard(now: Date(), connected: true).metrics.map(\.title) == ["Session", "Weekly", "Fable only"])
+        let secondClaude = try JSONDecoder().decode(Limits.self, from: Data("""
+        {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":22},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":52}]}
+        """.utf8))
+        delegate.store.quotas.external.append(Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: secondClaude, failed: false))
+        delegate.store.quotas.external.append(Account(id: "claude3", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: nil, failed: false))
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel() == "Claude 5h 95%/78%/? F 80%/48%/? ·, Codex 65% / 65% remaining")
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
