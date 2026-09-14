@@ -10,7 +10,6 @@ struct CardTests {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
         delegate.item = item
-        item.menu = delegate.menu
         for (driver, name) in [("claudeAgent", "claude"), ("codex", "codex")] {
             let url = try #require(Bundle.module.url(forResource: "ProviderIcon-\(name)", withExtension: "svg", subdirectory: "Resources"))
             let icon = try #require(NSImage(contentsOf: url))
@@ -33,6 +32,7 @@ struct CardTests {
         delegate.store.connected = true
         delegate.updateTitles()
         #expect(item.button?.accessibilityLabel() == "Claude 5h 95% F 80%, Codex 65% / 65% remaining")
+        #expect(item.button?.toolTip == nil)
         let image = try #require(item.button?.image)
         #expect(image.isTemplate)
         #expect(image.size.height == 18)

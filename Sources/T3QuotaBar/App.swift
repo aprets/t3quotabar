@@ -396,7 +396,9 @@ extension Account {
         self.item = item
         menu.delegate = self
         menu.appearance = NSApp.effectiveAppearance
-        item.menu = menu
+        item.button?.target = self
+        item.button?.action = #selector(showMenu)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         menuNeedsUpdate(menu)
         item.button?.identifier = NSUserInterfaceItemIdentifier("combined")
         for driver in ["claudeAgent", "codex"] {
@@ -419,6 +421,18 @@ extension Account {
                 await self?.store.refreshStatus()
             }
         }
+    }
+
+    @objc func showMenu() {
+        guard let button = item?.button, let window = button.window else { return }
+        button.highlight(true)
+        defer { button.highlight(false) }
+        // Attaching item.menu makes AppKit widen the menu to match the readout.
+        let buttonFrame = window.convertToScreen(button.convert(button.bounds, to: nil))
+        let event = NSApp.currentEvent
+        let clicked = event?.type == .leftMouseUp || event?.type == .rightMouseUp
+        let x = clicked ? NSEvent.mouseLocation.x : buttonFrame.minX
+        menu.popUp(positioning: nil, at: NSPoint(x: x, y: window.frame.minY), in: nil)
     }
 
     func updateTitles() {
@@ -460,7 +474,6 @@ extension Account {
         image.isTemplate = true
         item?.button?.image = image
         item?.button?.imagePosition = .imageOnly
-        item?.button?.toolTip = descriptions.joined(separator: " · ") + " remaining"
         item?.button?.setAccessibilityLabel(descriptions.joined(separator: ", ") + " remaining")
     }
 
