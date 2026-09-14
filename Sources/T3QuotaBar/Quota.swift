@@ -51,6 +51,24 @@ struct Account: Identifiable {
     }
 }
 
+struct QuotaRefreshSchedule {
+    var lastAttempt: Date?
+    var pending = false
+    private let startedAt = Date()
+
+    mutating func beginIfDue(accounts: [Account], now: Date) -> Bool {
+        guard !pending, !accounts.isEmpty,
+              lastAttempt.map({ now.timeIntervalSince($0) >= 600 }) ?? true,
+              accounts.contains(where: { account in
+                  let checkedAt = account.limits.flatMap { parseDate($0.checkedAt) } ?? startedAt
+                  return now.timeIntervalSince(checkedAt) >= 600
+              }) else { return false }
+        lastAttempt = now
+        pending = true
+        return true
+    }
+}
+
 struct ConfigEvent: Decodable {
     struct Provider: Decodable {
         struct Auth: Decodable { let email: String?; let label: String? }

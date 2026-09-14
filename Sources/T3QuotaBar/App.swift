@@ -21,14 +21,19 @@ struct AppFailure: LocalizedError {
     private var socket: URLSessionWebSocketTask?
     private var heartbeat: Task<Void, Never>?
     private var reconnectCheckStarted = false
+    private var refreshCheckStarted = false
     private var lastFrameAt = Date()
     private var sessionTokens: [String: String] = [:]
+    var refreshSchedule = QuotaRefreshSchedule()
+    @Published var refreshIssue: String?
 
     func start(pair: Bool = false) {
         connection?.cancel()
         heartbeat?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         connected = false
+        refreshSchedule.pending = false
+        refreshIssue = nil
         message = "Connecting to T3 Code…"
         onChange?()
         connection = Task {
@@ -87,7 +92,7 @@ struct AppFailure: LocalizedError {
             throw AppFailure(message: "T3 runtime must point to a local server.")
         }
         let descriptor = try JSONDecoder().decode(Descriptor.self, from: await request(origin.appendingPathComponent(".well-known/t3/environment")))
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "net.t3quotabar.session.signed", kSecAttrAccount as String: descriptor.environmentId]
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "net.t3quotabar.session.operate", kSecAttrAccount as String: descriptor.environmentId]
         var token = sessionTokens[descriptor.environmentId]
         if token == nil && !pair {
             var result: CFTypeRef?
@@ -136,14 +141,14 @@ struct AppFailure: LocalizedError {
                 URLQueryItem(name: "subject_token", value: pairingToken),
                 URLQueryItem(name: "subject_token_type", value: "urn:t3:params:oauth:token-type:environment-bootstrap"),
                 URLQueryItem(name: "requested_token_type", value: "urn:ietf:params:oauth:token-type:access_token"),
-                URLQueryItem(name: "scope", value: "orchestration:read"),
+                URLQueryItem(name: "scope", value: "orchestration:read orchestration:operate"),
                 URLQueryItem(name: "client_label", value: "T3QuotaBar"),
                 URLQueryItem(name: "client_device_type", value: "desktop"),
                 URLQueryItem(name: "client_os", value: "macOS")
             ]
             struct Session: Decodable { let access_token: String; let scope: String }
             let session = try JSONDecoder().decode(Session.self, from: await request(origin.appendingPathComponent("oauth/token"), method: "POST", body: form.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)))
-            guard session.scope == "orchestration:read" else { throw AppFailure(message: "T3 returned unexpected session permissions.") }
+            guard Set(session.scope.split(separator: " ")) == ["orchestration:read", "orchestration:operate"] else { throw AppFailure(message: "T3 returned unexpected session permissions.") }
             token = session.access_token
             sessionTokens[descriptor.environmentId] = token
             let attributes = [kSecValueData as String: Data(session.access_token.utf8)]
@@ -163,6 +168,7 @@ struct AppFailure: LocalizedError {
         let ws = URLSession.shared.webSocketTask(with: components.url!)
         socket = ws
         ws.resume()
+        refreshSchedule.pending = false
         lastFrameAt = Date()
         try await ws.send(.string("{\"_tag\":\"Request\",\"id\":\"1\",\"tag\":\"subscribeServerConfig\",\"payload\":{\"usageLimitSources\":true},\"headers\":[]}"))
         heartbeat = Task {
@@ -174,6 +180,19 @@ struct AppFailure: LocalizedError {
                         return
                     }
                     try await ws.send(.string("{\"_tag\":\"Ping\"}"))
+                    if connected, refreshIssue == nil, refreshSchedule.beginIfDue(accounts: quotas.accounts, now: Date()) {
+                        try await ws.send(.string("{\"_tag\":\"Request\",\"id\":\"quota-refresh\",\"tag\":\"server.refreshProviders\",\"payload\":{},\"headers\":[]}"))
+                        NSLog("T3QuotaBar requested stale quota refresh through T3")
+                    }
+                    if refreshSchedule.pending, let attempted = refreshSchedule.lastAttempt, Date().timeIntervalSince(attempted) >= 120 {
+                        refreshSchedule.pending = false
+                        try await ws.send(.string("{\"_tag\":\"Interrupt\",\"requestId\":\"quota-refresh\"}"))
+                        NSLog("T3QuotaBar quota refresh timed out; retaining subscription and cooldown")
+                        if CommandLine.arguments.contains("--check-refresh") {
+                            print("Refresh check failed: T3 provider refresh timed out.")
+                            Darwin.exit(1)
+                        }
+                    }
                 } catch {
                     if !Task.isCancelled { ws.cancel(with: .goingAway, reason: nil) }
                     return
@@ -185,14 +204,38 @@ struct AppFailure: LocalizedError {
             lastFrameAt = Date()
             let data: Data
             switch frame { case .data(let value): data = value; case .string(let value): data = Data(value.utf8); @unknown default: continue }
-            struct Envelope: Decodable { let _tag: String; let requestId: String?; let values: [ConfigEvent]? }
+            struct Envelope: Decodable {
+                struct Exit: Decodable { let _tag: String }
+                let _tag: String; let requestId: String?; let values: [ConfigEvent]?; let exit: Exit?
+            }
             let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+            if envelope.requestId == "quota-refresh" {
+                if envelope._tag == "Exit" {
+                    guard refreshSchedule.pending else { continue }
+                    refreshSchedule.pending = false
+                    if envelope.exit?._tag != "Success" {
+                        refreshIssue = "Automatic refresh failed. Reconnect to T3 Code to retry."
+                        NSLog("T3QuotaBar quota refresh RPC failed; automatic requests paused")
+                    }
+                    if CommandLine.arguments.contains("--check-refresh") {
+                        print(refreshIssue == nil ? "Refresh check passed: T3 accepted and completed provider refresh." : "Refresh check failed: T3 rejected provider refresh.")
+                        Darwin.exit(refreshIssue == nil ? 0 : 1)
+                    }
+                }
+                continue
+            }
             if envelope._tag == "Chunk", let values = envelope.values {
                 for event in values { quotas.apply(event) }
                 connected = true
                 message = "Reading T3 Code snapshots"
                 onChange?()
                 try await ws.send(.string("{\"_tag\":\"Ack\",\"requestId\":\"1\"}"))
+                if CommandLine.arguments.contains("--check-refresh"), !refreshCheckStarted, !quotas.external.isEmpty {
+                    refreshCheckStarted = true
+                    refreshSchedule.lastAttempt = Date()
+                    refreshSchedule.pending = true
+                    try await ws.send(.string("{\"_tag\":\"Request\",\"id\":\"quota-refresh\",\"tag\":\"server.refreshProviders\",\"payload\":{},\"headers\":[]}"))
+                }
                 if CommandLine.arguments.contains("--check-reconnect"), !quotas.external.isEmpty {
                     if !reconnectCheckStarted {
                         reconnectCheckStarted = true
@@ -391,7 +434,7 @@ extension Account {
                     let percentages = accounts.map { account in
                         let window = account.limits?.windows.first { label == "5h" ? $0.kind == "session" : $0.isFable }
                         return window.map { "\(Int($0.remaining.rounded()))%" } ?? "?"
-                    }.joined(separator: "/")
+                    }.joined(separator: " / ")
                     return "\(label) \(percentages)"
                 }.joined(separator: " ")
             } else {
@@ -474,6 +517,9 @@ extension Account {
                 menu.addItem(makeWrappedSecondaryTextItem(text: summaryText, width: 310))
             }
             menu.addItem(.separator())
+        }
+        if let issue = store.refreshIssue {
+            menu.addItem(makeWrappedSecondaryTextItem(text: issue, width: 310))
         }
         let reconnect = menu.addItem(withTitle: store.connected ? "Reconnect to T3 Code" : "Connect to T3 Code…", action: #selector(reconnect), keyEquivalent: "")
         reconnect.target = self

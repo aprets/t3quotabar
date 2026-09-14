@@ -14,7 +14,7 @@ Account labels in this screenshot have been anonymized.
 
 - One menu-bar item with Claude and Codex readouts side by side.
 - Claude session and Fable-specific percentages remaining, with the general weekly limit in the dropdown.
-- Multiple Claude accounts share each label: `5h 86%/78%/100% F 48%/80%/100%`, using the same account order in both groups.
+- Multiple Claude accounts share each label: `5h 86% / 78% / 100% F 48% / 80% / 100%`, using the same account order in both groups.
 - Weekly percentages for every Codex account.
 - A dropdown with per-account cards, reset countdowns, data age, and available reset credits.
 - Even-pace reserve estimates when T3 supplies the window duration.
@@ -38,7 +38,7 @@ bash scripts/build-app.sh
 open dist/T3QuotaBar.app
 ```
 
-Copy `dist/T3QuotaBar.app` to Applications to install. Click the menu-bar item, then **Connect to T3 Code**. The app invokes T3's bundled `pair` CLI and saves a read-only bearer session in macOS Keychain. It supports T3 Code and T3 Code Alpha installed in `/Applications`, using the default `~/.t3` data directory.
+Copy `dist/T3QuotaBar.app` to Applications to install. Click the menu-bar item, then **Connect to T3 Code**. The app invokes T3's bundled `pair` CLI and saves its bearer session in macOS Keychain. Upgrading from the read-only version requires pairing once for refresh permission. It supports T3 Code and T3 Code Alpha installed in `/Applications`, using the default `~/.t3` data directory.
 
 To check the connection without printing account emails or credentials:
 
@@ -54,13 +54,15 @@ Use a stable signing certificate to retain Keychain access across rebuilds. Set 
 
 ## Data source
 
-The integration pairs with an existing T3 Code server and subscribes to its authenticated WebSocket API. T3 Code must be running for fresh quota data. Its API is internal and may change between releases. The app requests `orchestration:read`, T3's narrowest applicable scope, which also permits other environment reads. The app only subscribes to configuration and quota snapshots.
+The integration pairs with an existing T3 Code server and subscribes to its authenticated WebSocket API. T3 Code must be running for fresh quota data. Its API is internal and may change between releases. The app requests `orchestration:read` and `orchestration:operate` because T3 requires operate permission for `server.refreshProviders`. These scopes also permit unrelated environment reads and changes; T3QuotaBar uses only quota/configuration subscriptions and provider refresh.
 
 No CLIProxyAPI management key or provider login is needed by this app. Provider status is fetched separately from public status endpoints every five minutes.
 
 Failed probes and disconnected sessions keep last-good data in memory. A dot in the menu bar and a warning in the dropdown mark stale values. Snapshots older than 20 minutes are also marked stale. Last-good data is not persisted across app restarts. Expired authorization requires clicking Connect again. Each T3 server still has its own cache; this app does not coordinate refreshes across machines.
 
-T3's default background policy can pause CPA polling when its window is unfocused. Keeping the T3 process running does not guarantee fresh snapshots. T3's Performance background profile can allow background polling; T3QuotaBar does not change that setting or submit activity leases. T3 also probes native providers when a client subscribes. This app makes no explicit quota-refresh calls, but connecting is therefore not entirely free of upstream traffic. Reconnects back off from one to five minutes; authorization and decoding failures stop until manual reconnection.
+T3's default background policy can pause CPA polling when its window is unfocused. T3QuotaBar checks snapshot age every 20 seconds while connected and requests a provider refresh when any displayed account is at least 10 minutes old. Fresh snapshots suppress requests; attempts have a 10-minute cooldown and never overlap. T3's untargeted refresh includes all native providers and CPA sources, so this does cause upstream traffic. Requests time out after two minutes; RPC failures pause automatic refresh with a message in the dropdown until reconnection. This does not coordinate refreshes across separate machines. T3QuotaBar does not change T3's background settings or submit activity leases. Reconnects back off from one to five minutes.
+
+For a one-shot refresh diagnostic, run `dist/T3QuotaBar.app/Contents/MacOS/T3QuotaBar --check-refresh`. This explicitly refreshes providers even when snapshots are fresh.
 
 Native and CPA entries with the same provider and email are shown once, preferring CPA. Missing Fable stays unavailable. Reset credits show the count and next expiry only, because T3 does not provide every expiry. No credit redemption is performed.
 

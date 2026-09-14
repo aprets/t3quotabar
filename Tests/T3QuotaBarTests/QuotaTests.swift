@@ -3,6 +3,35 @@ import Foundation
 @testable import T3QuotaBar
 
 struct QuotaTests {
+    @Test func staleQuotaRefreshWaitsTenMinutesAndDoesNotOverlapOrRetryEarly() throws {
+        let now = Date()
+        let limits = try JSONDecoder().decode(Limits.self, from: Data("""
+        {"checkedAt":"\(ISO8601DateFormatter().string(from: now))","windows":[]}
+        """.utf8))
+        let account = Account(id: "a", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: limits, failed: false)
+        var schedule = QuotaRefreshSchedule()
+        let empty = schedule.beginIfDue(accounts: [], now: now.addingTimeInterval(601))
+        #expect(!empty)
+        let fresh = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(599))
+        #expect(!fresh)
+        let stale = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(601))
+        #expect(stale)
+        let overlap = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(1202))
+        #expect(!overlap)
+        schedule.pending = false
+        let earlyRetry = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(1199))
+        #expect(!earlyRetry)
+        let retry = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(1202))
+        #expect(retry)
+        schedule.pending = false
+        var refreshed = account
+        refreshed.limits = try JSONDecoder().decode(Limits.self, from: Data("""
+        {"checkedAt":"\(ISO8601DateFormatter().string(from: now.addingTimeInterval(1790)))","windows":[]}
+        """.utf8))
+        let updated = schedule.beginIfDue(accounts: [refreshed], now: now.addingTimeInterval(1810))
+        #expect(!updated)
+    }
+
     @Test func bothCodexAccountsRemainDistinctAndShowRemainingNotUsed() throws {
         let json = """
         {"type":"usageLimitSourcesUpdated","payload":{"sources":[{"id":"cpa","label":"CPA","accounts":[

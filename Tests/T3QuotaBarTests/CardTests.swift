@@ -48,7 +48,7 @@ struct CardTests {
         delegate.store.quotas.external.append(Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: secondClaude, failed: false))
         delegate.store.quotas.external.append(Account(id: "claude3", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: nil, failed: false))
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel() == "Claude 5h 95%/78%/? F 80%/48%/? ·, Codex 65% / 65% remaining")
+        #expect(item.button?.accessibilityLabel() == "Claude 5h 95% / 78% / ? F 80% / 48% / ? ·, Codex 65% / 65% remaining")
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

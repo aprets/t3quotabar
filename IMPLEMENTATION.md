@@ -20,7 +20,7 @@ The authenticated connection has been tested against the installed server. It su
 ## Connection
 
 1. Locate the configured T3 server. Desktop normally starts at loopback port 3773 and scans upward when it is occupied. Verify the environment identity using `/.well-known/t3/environment` before sending credentials.
-2. Invoke the installed T3 desktop app's bundled `pair` CLI when the user clicks Connect. Exchange its credential for only `orchestration:read` and store the resulting bearer token in Keychain.
+2. Invoke the installed T3 desktop app's bundled `pair` CLI when the user clicks Connect. Exchange its credential for `orchestration:read orchestration:operate` and store the resulting bearer token in Keychain. Operate is required for the ten-minute stale-data refresh; the separate `.operate` Keychain service requires explicit re-pairing when upgrading from the read-only version.
 3. Exchange the credential through `POST /oauth/token`, then obtain a ticket through `POST /api/auth/websocket-ticket`.
 4. Connect to `/ws?wsTicket=...` and subscribe to server configuration with `usageLimitSources: true`.
 5. Read the initial native provider state and subsequent provider updates, together with `usageLimitSourcesUpdated` for CPA accounts.
