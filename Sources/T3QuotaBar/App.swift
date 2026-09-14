@@ -542,15 +542,16 @@ extension Account {
         if let issue = store.refreshIssue {
             menu.addItem(makeWrappedSecondaryTextItem(text: issue, width: 310))
         }
-        let sum = menu.addItem(withTitle: "Sum account limits", action: #selector(toggleSumAccountLimits), keyEquivalent: "")
+        let summed = preferences.bool(forKey: "sumAccountLimits")
+        let sum = menu.addItem(withTitle: summed ? "Show per-account limits" : "Show totals", action: #selector(toggleSumAccountLimits), keyEquivalent: "")
         sum.target = self
-        sum.state = preferences.bool(forKey: "sumAccountLimits") ? .on : .off
+        sum.image = NSImage(systemSymbolName: summed ? "list.bullet" : "sum", accessibilityDescription: nil)
         let reconnect = menu.addItem(withTitle: store.connected ? "Reconnect to T3 Code" : "Connect to T3 Code…", action: #selector(reconnect), keyEquivalent: "")
         reconnect.target = self
         reconnect.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         let quit = menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.image = NSImage(systemSymbolName: "xmark.rectangle", accessibilityDescription: nil)
-        for item in [reconnect, quit] {
+        for item in [sum, reconnect, quit] {
             item.image?.isTemplate = true
             item.image?.size = NSSize(width: 16, height: 16)
         }

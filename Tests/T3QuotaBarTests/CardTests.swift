@@ -117,8 +117,9 @@ struct CardTests {
         #expect(UserDefaults(suiteName: suite)?.bool(forKey: "sumAccountLimits") == true)
         #expect(item.button?.accessibilityLabel() == "Claude 160% 5h! 18% / 18%, Codex 160% remaining")
         delegate.menuNeedsUpdate(delegate.menu)
-        let toggleIndex = try #require(delegate.menu.items.firstIndex { $0.title == "Sum account limits" })
-        #expect(delegate.menu.items[toggleIndex].state == .on)
+        let toggleIndex = try #require(delegate.menu.items.firstIndex { $0.title == "Show per-account limits" })
+        #expect(delegate.menu.items[toggleIndex].state == .off)
+        #expect(delegate.menu.items[toggleIndex].image?.size == NSSize(width: 16, height: 16))
         #expect(delegate.menu.items[toggleIndex + 1].title == "Reconnect to T3 Code")
         #expect(delegate.menu.items.filter { $0 is MenuCardMenuItem }.count == 4)
         delegate.store.quotas.external[0].limits = nil
@@ -126,6 +127,10 @@ struct CardTests {
         #expect(item.button?.accessibilityLabel() == "Claude 80% + ? 5h! 18% ·, Codex 160% remaining")
         delegate.toggleSumAccountLimits()
         #expect(preferences.bool(forKey: "sumAccountLimits") == false)
+        delegate.menuNeedsUpdate(delegate.menu)
+        let totals = try #require(delegate.menu.items.first { $0.title == "Show totals" })
+        #expect(totals.state == .off)
+        #expect(totals.image?.size == NSSize(width: 16, height: 16))
         #expect(item.button?.accessibilityLabel() == "Claude ? / 80% 5h! 18% ·, Codex 80% / 80% remaining")
     }
 
