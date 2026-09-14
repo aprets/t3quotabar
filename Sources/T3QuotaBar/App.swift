@@ -429,7 +429,8 @@ extension Account {
         defer { button.highlight(false) }
         // Attaching item.menu makes AppKit widen the menu to match the readout.
         let buttonFrame = window.convertToScreen(button.convert(button.bounds, to: nil))
-        menu.popUp(positioning: nil, at: NSPoint(x: buttonFrame.minX, y: window.frame.minY), in: nil)
+        // popUp anchors the content, with the menu's outer padding extending above it.
+        menu.popUp(positioning: nil, at: NSPoint(x: buttonFrame.minX, y: window.frame.minY - 6), in: nil)
     }
 
     func updateTitles() {
