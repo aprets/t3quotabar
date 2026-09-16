@@ -477,6 +477,25 @@ extension Account {
                 if !lowSessions.isEmpty { values += " 5h! \(lowSessions)" }
             }
             let readout = values + (stale ? " ·" : "")
+            // Banked reset credits (Codex only) draw as pips inside each pace glyph, one slot per glyph in readout order; totals pool them.
+            let credits = accounts.map { $0.limits?.resetCredits?.availableCount ?? 0 }
+            var pips: [Int] = preferences.bool(forKey: "sumAccountLimits") ? [credits.reduce(0, +)] : zip(readings, credits).compactMap { reading, count in
+                if case .unknown = reading { nil } else { count }
+            }
+            func badged(_ icon: NSImage, pips count: Int) -> NSImage {
+                let pip: CGFloat = 2.1, pitch: CGFloat = 2.9
+                let xs: [CGFloat] = switch min(count, 3) { case 1: [0]; case 2: [-pitch / 2, pitch / 2]; default: [-pitch, 0, pitch] }
+                let image = NSImage(size: icon.size, flipped: true) { rect in
+                    icon.draw(in: rect)
+                    NSColor.black.setFill()
+                    for x in xs {  // centred along the glyph's open bottom band, 22.2 of 24 units down
+                        NSBezierPath(ovalIn: NSRect(x: rect.midX + x - pip / 2, y: 22.2 / 24 * rect.height - pip / 2, width: pip, height: pip)).fill()
+                    }
+                    return true
+                }
+                image.isTemplate = true
+                return image
+            }
             if title.length > 0 { title.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
             if let icon = icons[driver] {
                 let attachment = NSTextAttachment()
@@ -489,7 +508,8 @@ extension Account {
                 if let icon = icons[String(character)] {
                     // Arrows render as T3 Code's Lucide pace icons, sized to stand out since direction matters more than the number.
                     let attachment = NSTextAttachment()
-                    attachment.image = icon
+                    let count = pips.isEmpty ? 0 : pips.removeFirst()
+                    attachment.image = count > 0 ? badged(icon, pips: count) : icon
                     attachment.bounds = NSRect(x: 0, y: (font.capHeight - icon.size.height) / 2, width: icon.size.width, height: icon.size.height)
                     title.append(NSAttributedString(attachment: attachment))
                     title.append(NSAttributedString(string: " ", attributes: [.font: font]))
@@ -497,7 +517,8 @@ extension Account {
                     title.append(NSAttributedString(string: String(character), attributes: [.font: font, .foregroundColor: NSColor.black]))
                 }
             }
-            descriptions.append("\(driver == "codex" ? "Codex" : "Claude") \(readout)")
+            let banked = credits.reduce(0, +)
+            descriptions.append("\(driver == "codex" ? "Codex" : "Claude") \(readout)" + (showReserve && banked > 0 ? " (\(banked) reset credits)" : ""))
         }
         let size = title.size()
         let image = NSImage(size: NSSize(width: ceil(size.width), height: 18), flipped: false) { _ in

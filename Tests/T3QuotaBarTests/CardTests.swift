@@ -157,25 +157,25 @@ struct CardTests {
         let checkedAt = formatter.string(from: Date())
         // Two of seven days elapsed, so linear pace expects about 28.6% used.
         let reset = formatter.string(from: Date().addingTimeInterval(5 * 86_400))
-        func limits(fable: Double?, codex: Double?, resets: Bool = true, session: Double = 82) throws -> Limits {
+        func limits(fable: Double?, codex: Double?, resets: Bool = true, session: Double = 82, credits: Int = 0) throws -> Limits {
             let resetsAt = resets ? "\"\(reset)\"" : "null"
             let windows = fable.map { "{\"id\":\"five_hour\",\"kind\":\"session\",\"label\":\"Session\",\"usedPercent\":\(session)},{\"id\":\"seven_day_fable\",\"kind\":\"weekly\",\"label\":\"Weekly · Fable\",\"usedPercent\":\($0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}" }
                 ?? "{\"id\":\"primary\",\"kind\":\"weekly\",\"label\":\"Weekly\",\"usedPercent\":\(codex ?? 0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}"
-            return try JSONDecoder().decode(Limits.self, from: Data("{\"checkedAt\":\"\(checkedAt)\",\"windows\":[\(windows)]}".utf8))
+            return try JSONDecoder().decode(Limits.self, from: Data("{\"checkedAt\":\"\(checkedAt)\",\"windows\":[\(windows)],\"resetCredits\":{\"availableCount\":\(credits)}}".utf8))
         }
         delegate.store.quotas.external = [
             Account(id: "claude1", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 20, codex: nil), failed: false),
             Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 40, codex: nil), failed: false),
             // Untouched: Claude reports no reset until something is used, so there is no clock to pace against.
             Account(id: "claude3", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 0, codex: nil, resets: false, session: 0), failed: false),
-            Account(id: "codex1", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: try limits(fable: nil, codex: 20), failed: false),
+            Account(id: "codex1", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: try limits(fable: nil, codex: 20, credits: 2), failed: false),
             Account(id: "codex2", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: try limits(fable: nil, codex: 20, resets: false), failed: false)
         ]
         delegate.updateTitles()
         #expect(item.button?.accessibilityLabel() == "Claude 80% / 60% / 100% 5h! 18% / 18%, Codex 80% / 80% remaining")
         delegate.toggleShowReserve()
         #expect(preferences.bool(forKey: "showReserve") == true)
-        #expect(item.button?.accessibilityLabel() == "Claude ↘9% / ↗11% / ↘ 5h! 18% / 18%, Codex ↘9% / ? reserve")
+        #expect(item.button?.accessibilityLabel() == "Claude ↘9% / ↗11% / ↘ 5h! 18% / 18%, Codex ↘9% / ? (2 reset credits) reserve")
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let image = try #require(item.button?.image)
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
@@ -203,7 +203,7 @@ struct CardTests {
         #expect(delegate.menu.items[limitsRow + 1].title == "Show average")
         #expect(delegate.menu.items[limitsRow + 2].title == "Reconnect to T3 Code")
         delegate.toggleSumAccountLimits()
-        #expect(item.button?.accessibilityLabel() == "Claude ⏲1% 5h! 18% / 18%, Codex ↘9% + ? reserve")
+        #expect(item.button?.accessibilityLabel() == "Claude ⏲1% 5h! 18% / 18%, Codex ↘9% + ? (2 reset credits) reserve")
         delegate.menuNeedsUpdate(delegate.menu)
         #expect(delegate.menu.items.contains { $0.title == "Show per-account reserve" })
         delegate.toggleShowReserve()
