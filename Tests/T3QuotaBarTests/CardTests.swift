@@ -144,7 +144,7 @@ struct CardTests {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
         delegate.item = item
-        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 12.0), ("↘", "PaceIcon-under", 12.0)] {
+        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0)] {
             let url = try #require(Bundle.module.url(forResource: name, withExtension: "svg", subdirectory: "Resources"))
             let icon = try #require(NSImage(contentsOf: url))
             icon.size = NSSize(width: size, height: size)

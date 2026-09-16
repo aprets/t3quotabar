@@ -397,7 +397,7 @@ extension Account {
         item.button?.identifier = NSUserInterfaceItemIdentifier("combined")
         let packagedResources = Bundle.main.resourceURL?.appendingPathComponent("T3QuotaBar_T3QuotaBar.bundle")
         let resourceBundle = packagedResources.flatMap { Bundle(url: $0) } ?? Bundle.module
-        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 12.0), ("↘", "PaceIcon-under", 12.0)] {
+        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0)] {
             if let url = resourceBundle.url(forResource: name, withExtension: "svg", subdirectory: "Resources"), let image = NSImage(contentsOf: url) {
                 image.size = NSSize(width: size, height: size)
                 image.isTemplate = true
@@ -485,7 +485,7 @@ extension Account {
             }
             for character in readout {
                 if let icon = icons[String(character)] {
-                    // Arrows render as T3 Code's Lucide pace icons at cap height, spaced like the provider icons.
+                    // Arrows render as T3 Code's Lucide pace icons, sized to stand out since direction matters more than the number.
                     let attachment = NSTextAttachment()
                     attachment.image = icon
                     attachment.bounds = NSRect(x: 0, y: (font.capHeight - icon.size.height) / 2, width: icon.size.width, height: icon.size.height)
