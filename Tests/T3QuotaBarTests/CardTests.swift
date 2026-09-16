@@ -144,40 +144,70 @@ struct CardTests {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
         delegate.item = item
+        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0)] {
+            let url = try #require(Bundle.module.url(forResource: name, withExtension: "svg", subdirectory: "Resources"))
+            let icon = try #require(NSImage(contentsOf: url))
+            icon.size = NSSize(width: size, height: size)
+            icon.isTemplate = true
+            delegate.icons[key] = icon
+        }
         delegate.store.connected = true
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let checkedAt = formatter.string(from: Date())
         // Two of seven days elapsed, so linear pace expects about 28.6% used.
         let reset = formatter.string(from: Date().addingTimeInterval(5 * 86_400))
-        func limits(fable: Double?, codex: Double?, resets: Bool = true) throws -> Limits {
+        func limits(fable: Double?, codex: Double?, resets: Bool = true, session: Double = 82) throws -> Limits {
             let resetsAt = resets ? "\"\(reset)\"" : "null"
-            let windows = fable.map { "{\"id\":\"five_hour\",\"kind\":\"session\",\"label\":\"Session\",\"usedPercent\":82},{\"id\":\"seven_day_fable\",\"kind\":\"weekly\",\"label\":\"Weekly · Fable\",\"usedPercent\":\($0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}" }
+            let windows = fable.map { "{\"id\":\"five_hour\",\"kind\":\"session\",\"label\":\"Session\",\"usedPercent\":\(session)},{\"id\":\"seven_day_fable\",\"kind\":\"weekly\",\"label\":\"Weekly · Fable\",\"usedPercent\":\($0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}" }
                 ?? "{\"id\":\"primary\",\"kind\":\"weekly\",\"label\":\"Weekly\",\"usedPercent\":\(codex ?? 0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}"
             return try JSONDecoder().decode(Limits.self, from: Data("{\"checkedAt\":\"\(checkedAt)\",\"windows\":[\(windows)]}".utf8))
         }
         delegate.store.quotas.external = [
             Account(id: "claude1", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 20, codex: nil), failed: false),
             Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 40, codex: nil), failed: false),
+            // Untouched: Claude reports no reset until something is used, so there is no clock to pace against.
+            Account(id: "claude3", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 0, codex: nil, resets: false, session: 0), failed: false),
             Account(id: "codex1", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: try limits(fable: nil, codex: 20), failed: false),
             Account(id: "codex2", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: try limits(fable: nil, codex: 20, resets: false), failed: false)
         ]
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel() == "Claude 80% / 60% 5h! 18% / 18%, Codex 80% / 80% remaining")
+        #expect(item.button?.accessibilityLabel() == "Claude 80% / 60% / 100% 5h! 18% / 18%, Codex 80% / 80% remaining")
         delegate.toggleShowReserve()
         #expect(preferences.bool(forKey: "showReserve") == true)
-        #expect(item.button?.accessibilityLabel() == "Claude ↗9% / ↘11% 5h! 18% / 18%, Codex ↗9% / ? reserve")
+        #expect(item.button?.accessibilityLabel() == "Claude ↘9% / ↗11% / ↘ 5h! 18% / 18%, Codex ↘9% / ? reserve")
+        if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
+            let image = try #require(item.button?.image)
+            let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            let preview = NSButton(frame: NSRect(x: 0, y: 0, width: image.size.width + 12, height: 24))
+            preview.isBordered = false
+            preview.wantsLayer = true
+            preview.layer?.backgroundColor = NSColor.white.cgColor
+            preview.image = image
+            preview.imagePosition = .imageOnly
+            preview.contentTintColor = .black
+            let window = NSWindow(contentRect: preview.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.backgroundColor = .white
+            window.appearance = NSAppearance(named: .aqua)
+            window.contentView = preview
+            preview.layoutSubtreeIfNeeded()
+            let bitmap = try #require(preview.bitmapImageRepForCachingDisplay(in: preview.bounds))
+            preview.cacheDisplay(in: preview.bounds, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: output.appendingPathComponent("reserve-item.png"))
+        }
         delegate.menuNeedsUpdate(delegate.menu)
         let limitsRow = try #require(delegate.menu.items.firstIndex { $0.title == "Show limits" })
         #expect(delegate.menu.items[limitsRow].image?.size == NSSize(width: 16, height: 16))
         #expect(delegate.menu.items[limitsRow + 1].title == "Show average")
         #expect(delegate.menu.items[limitsRow + 2].title == "Reconnect to T3 Code")
         delegate.toggleSumAccountLimits()
-        #expect(item.button?.accessibilityLabel() == "Claude ↘1% 5h! 18% / 18%, Codex ↗9% + ? reserve")
+        #expect(item.button?.accessibilityLabel() == "Claude ↗1% 5h! 18% / 18%, Codex ↘9% + ? reserve")
         delegate.menuNeedsUpdate(delegate.menu)
         #expect(delegate.menu.items.contains { $0.title == "Show per-account reserve" })
         delegate.toggleShowReserve()
-        #expect(item.button?.accessibilityLabel() == "Claude 140% 5h! 18% / 18%, Codex 160% remaining")
+        #expect(item.button?.accessibilityLabel() == "Claude 240% 5h! 18% / 18%, Codex 160% remaining")
         delegate.menuNeedsUpdate(delegate.menu)
         #expect(delegate.menu.items.contains { $0.title == "Show reserve" })
         #expect(delegate.menu.items.contains { $0.title == "Show per-account limits" })

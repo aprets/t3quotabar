@@ -20,16 +20,14 @@ struct Window: Decodable, Identifiable {
         var reserve: Double { expectedUsed - usedPercent }
     }
 
-    /// Linear pace through the window. Nil until 3% has elapsed, or when the window has no reset, is over, or is empty.
+    /// Linear pace through the window. Nil when the window has no clock: no length, no reset, or a reset outside the window.
     func pace(now: Date) -> Pace? {
         guard let minutes = windowDurationMins, minutes > 0, let reset else { return nil }
         let duration = minutes * 60
         let remainingTime = reset.timeIntervalSince(now)
         let elapsed = duration - remainingTime
-        guard remainingTime > 0, remainingTime <= duration, elapsed > 0, remaining > 0 else { return nil }
-        let expectedUsed = elapsed / duration * 100
-        guard expectedUsed >= 3 else { return nil }
-        return Pace(expectedUsed: expectedUsed, usedPercent: usedPercent, elapsed: elapsed, remainingTime: remainingTime)
+        guard remainingTime > 0, remainingTime <= duration, elapsed > 0 else { return nil }
+        return Pace(expectedUsed: elapsed / duration * 100, usedPercent: usedPercent, elapsed: elapsed, remainingTime: remainingTime)
     }
 }
 

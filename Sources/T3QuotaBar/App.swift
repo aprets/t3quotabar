@@ -307,7 +307,8 @@ extension Account {
             var paceOnTop = true
             var left: String?
             var right: String?
-            if let pace = window.pace(now: now) {
+            // Skip the forecast while the window is empty or under 3% elapsed; it is noise until then.
+            if let pace = window.pace(now: now), window.remaining > 0, pace.expectedUsed >= 3 {
                 let reserve = pace.reserve
                 let onPace = abs(reserve) <= 2
                 left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
@@ -394,14 +395,13 @@ extension Account {
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         menuNeedsUpdate(menu)
         item.button?.identifier = NSUserInterfaceItemIdentifier("combined")
-        for driver in ["claudeAgent", "codex"] {
-            let iconName = driver == "codex" ? "codex" : "claude"
-            let packagedResources = Bundle.main.resourceURL?.appendingPathComponent("T3QuotaBar_T3QuotaBar.bundle")
-            let resourceBundle = packagedResources.flatMap { Bundle(url: $0) } ?? Bundle.module
-            if let url = resourceBundle.url(forResource: "ProviderIcon-\(iconName)", withExtension: "svg", subdirectory: "Resources"), let image = NSImage(contentsOf: url) {
-                image.size = NSSize(width: 18, height: 18)
+        let packagedResources = Bundle.main.resourceURL?.appendingPathComponent("T3QuotaBar_T3QuotaBar.bundle")
+        let resourceBundle = packagedResources.flatMap { Bundle(url: $0) } ?? Bundle.module
+        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0)] {
+            if let url = resourceBundle.url(forResource: name, withExtension: "svg", subdirectory: "Resources"), let image = NSImage(contentsOf: url) {
+                image.size = NSSize(width: size, height: size)
                 image.isTemplate = true
-                icons[driver] = image
+                icons[key] = image
             }
         }
         store.onChange = { [weak self] in self?.updateTitles() }
@@ -435,22 +435,36 @@ extension Account {
         for driver in ["claudeAgent", "codex"] {
             let accounts = store.quotas.accounts.filter { $0.driver == driver }
             let stale = !store.connected || accounts.contains(where: \.stale)
-            let perAccount = accounts.map { account -> Double? in
-                let window = driver == "claudeAgent" ? account.limits?.windows.first { $0.isFable } : account.weekly
-                return showReserve ? window?.pace(now: now)?.reserve : window?.remaining
+            enum Reading { case value(Double), untouched, unknown }
+            let readings = accounts.map { account -> Reading in
+                guard let window = driver == "claudeAgent" ? account.limits?.windows.first(where: \.isFable) : account.weekly else { return .unknown }
+                if !showReserve { return .value(window.remaining) }
+                if let pace = window.pace(now: now) { return .value(pace.reserve) }
+                // Untouched windows report no reset, so their pace has no clock; they are under pace by any measure.
+                return window.usedPercent == 0 ? .untouched : .unknown
             }
+            // Arrows follow T3 Code: ↗ is ahead of pace (spending faster than the window elapses), ↘ is under pace.
             func format(_ value: Double) -> String {
-                showReserve ? "\(value >= 0 ? "↗" : "↘")\(Int(abs(value).rounded()))%" : "\(Int(value.rounded()))%"
+                showReserve ? "\(value < 0 ? "↗" : "↘")\(Int(abs(value).rounded()))%" : "\(Int(value.rounded()))%"
             }
+            let known = readings.compactMap { if case .value(let value) = $0 { value } else { nil } }
+            let untouched = readings.contains { if case .untouched = $0 { true } else { false } }
+            let unknown = readings.contains { if case .unknown = $0 { true } else { false } }
             var values: String
             if preferences.bool(forKey: "sumAccountLimits") {
-                let known = perAccount.compactMap { $0 }
                 let total = known.reduce(0, +)
                 // Limits sum into account-units of capacity; reserve averages so the scale stays ±100 whatever the account count.
-                values = known.isEmpty ? "?" : format(showReserve ? total / Double(known.count) : total)
-                if !known.isEmpty, known.count < perAccount.count { values += " + ?" }
+                // Untouched windows have no clock to average over, so they stay out, as T3 Code's pools do.
+                values = known.isEmpty ? (untouched ? "↘" : "?") : format(showReserve ? total / Double(known.count) : total)
+                if !known.isEmpty, unknown { values += " + ?" }
             } else {
-                values = perAccount.isEmpty ? "?" : perAccount.map { $0.map(format) ?? "?" }.joined(separator: " / ")
+                values = readings.isEmpty ? "?" : readings.map { reading in
+                    switch reading {
+                    case .value(let value): format(value)
+                    case .untouched: "↘"
+                    case .unknown: "?"
+                    }
+                }.joined(separator: " / ")
             }
             if driver == "claudeAgent" {
                 let lowSessions = accounts.compactMap { account -> String? in
@@ -469,7 +483,18 @@ extension Account {
                 title.append(NSAttributedString(attachment: attachment))
                 title.append(NSAttributedString(string: " ", attributes: [.font: font]))
             }
-            title.append(NSAttributedString(string: readout, attributes: [.font: font, .foregroundColor: NSColor.black]))
+            for character in readout {
+                if let icon = icons[String(character)] {
+                    // Arrows render as T3 Code's Lucide pace icons, followed by a thin space so the number stands off.
+                    let attachment = NSTextAttachment()
+                    attachment.image = icon
+                    attachment.bounds = NSRect(x: 0, y: (font.capHeight - icon.size.height) / 2, width: icon.size.width, height: icon.size.height)
+                    title.append(NSAttributedString(attachment: attachment))
+                    title.append(NSAttributedString(string: "\u{2009}", attributes: [.font: font]))
+                } else {
+                    title.append(NSAttributedString(string: String(character), attributes: [.font: font, .foregroundColor: NSColor.black]))
+                }
+            }
             descriptions.append("\(driver == "codex" ? "Codex" : "Claude") \(readout)")
         }
         let size = title.size()
