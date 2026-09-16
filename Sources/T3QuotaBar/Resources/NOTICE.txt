@@ -1,4 +1,4 @@
 T3QuotaBar is an independent companion to T3 Code.
 Account-card views, progress rendering, menu hosting, typography, layout and provider icons are copied or adapted from CodexBar (https://github.com/steipete/CodexBar), revision 7ba403f26df6965b118f157c8b9883f5d5836a57.
 The original MIT license is included alongside this notice. Source-level provenance and adaptations are documented in PROVENANCE.md in the T3QuotaBar repository.
-The pace icons (PaceIcon-ahead.svg and PaceIcon-under.svg) are the trending-up and trending-down icons from Lucide (https://lucide.dev), as used by T3 Code. Lucide's ISC license is included alongside this notice.
+The pace icons (PaceIcon-ahead.svg, PaceIcon-under.svg and PaceIcon-on.svg) are the trending-up, trending-down and gauge icons from Lucide (https://lucide.dev), as used by T3 Code. Lucide's ISC license is included alongside this notice.

@@ -310,7 +310,7 @@ extension Account {
             // Skip the forecast while the window is empty or under 3% elapsed; it is noise until then.
             if let pace = window.pace(now: now), window.remaining > 0, pace.expectedUsed >= 3 {
                 let reserve = pace.reserve
-                let onPace = abs(reserve) <= 2
+                let onPace = abs(reserve) <= 5  // T3 Code's on-pace band
                 left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
                 pacePercent = onPace ? nil : 100 - pace.expectedUsed
                 paceOnTop = reserve >= 0
@@ -397,7 +397,7 @@ extension Account {
         item.button?.identifier = NSUserInterfaceItemIdentifier("combined")
         let packagedResources = Bundle.main.resourceURL?.appendingPathComponent("T3QuotaBar_T3QuotaBar.bundle")
         let resourceBundle = packagedResources.flatMap { Bundle(url: $0) } ?? Bundle.module
-        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0)] {
+        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0), ("⏲", "PaceIcon-on", 14.0)] {
             if let url = resourceBundle.url(forResource: name, withExtension: "svg", subdirectory: "Resources"), let image = NSImage(contentsOf: url) {
                 image.size = NSSize(width: size, height: size)
                 image.isTemplate = true
@@ -443,9 +443,11 @@ extension Account {
                 // Untouched windows report no reset, so their pace has no clock; they are under pace by any measure.
                 return window.usedPercent == 0 ? .untouched : .unknown
             }
-            // Arrows follow T3 Code: ↗ is ahead of pace (spending faster than the window elapses), ↘ is under pace.
+            // Glyphs follow T3 Code: within five points of the clock is on pace (gauge), ↗ is ahead (spending faster than the window elapses), ↘ is under.
             func format(_ value: Double) -> String {
-                showReserve ? "\(value < 0 ? "↗" : "↘")\(Int(abs(value).rounded()))%" : "\(Int(value.rounded()))%"
+                guard showReserve else { return "\(Int(value.rounded()))%" }
+                let glyph = abs(value) <= 5 ? "⏲" : value < 0 ? "↗" : "↘"
+                return "\(glyph)\(Int(abs(value).rounded()))%"
             }
             let known = readings.compactMap { if case .value(let value) = $0 { value } else { nil } }
             let untouched = readings.contains { if case .untouched = $0 { true } else { false } }

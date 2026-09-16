@@ -144,7 +144,7 @@ struct CardTests {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
         delegate.item = item
-        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0)] {
+        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0), ("⏲", "PaceIcon-on", 14.0)] {
             let url = try #require(Bundle.module.url(forResource: name, withExtension: "svg", subdirectory: "Resources"))
             let icon = try #require(NSImage(contentsOf: url))
             icon.size = NSSize(width: size, height: size)
@@ -203,7 +203,7 @@ struct CardTests {
         #expect(delegate.menu.items[limitsRow + 1].title == "Show average")
         #expect(delegate.menu.items[limitsRow + 2].title == "Reconnect to T3 Code")
         delegate.toggleSumAccountLimits()
-        #expect(item.button?.accessibilityLabel() == "Claude ↗1% 5h! 18% / 18%, Codex ↘9% + ? reserve")
+        #expect(item.button?.accessibilityLabel() == "Claude ⏲1% 5h! 18% / 18%, Codex ↘9% + ? reserve")
         delegate.menuNeedsUpdate(delegate.menu)
         #expect(delegate.menu.items.contains { $0.title == "Show per-account reserve" })
         delegate.toggleShowReserve()
