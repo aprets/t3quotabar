@@ -134,6 +134,55 @@ struct CardTests {
         #expect(item.button?.accessibilityLabel() == "Claude ? / 80% 5h! 18% ·, Codex 80% / 80% remaining")
     }
 
+    @Test @MainActor func reserveToggleShowsPaceArrowsAndAveragesInsteadOfSumming() throws {
+        _ = NSApplication.shared
+        let delegate = AppDelegate()
+        let suite = "T3QuotaBarTests.\(UUID().uuidString)"
+        let preferences = try #require(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        delegate.preferences = preferences
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        delegate.item = item
+        delegate.store.connected = true
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let checkedAt = formatter.string(from: Date())
+        // Two of seven days elapsed, so linear pace expects about 28.6% used.
+        let reset = formatter.string(from: Date().addingTimeInterval(5 * 86_400))
+        func limits(fable: Double?, codex: Double?, resets: Bool = true) throws -> Limits {
+            let resetsAt = resets ? "\"\(reset)\"" : "null"
+            let windows = fable.map { "{\"id\":\"five_hour\",\"kind\":\"session\",\"label\":\"Session\",\"usedPercent\":82},{\"id\":\"seven_day_fable\",\"kind\":\"weekly\",\"label\":\"Weekly · Fable\",\"usedPercent\":\($0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}" }
+                ?? "{\"id\":\"primary\",\"kind\":\"weekly\",\"label\":\"Weekly\",\"usedPercent\":\(codex ?? 0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}"
+            return try JSONDecoder().decode(Limits.self, from: Data("{\"checkedAt\":\"\(checkedAt)\",\"windows\":[\(windows)]}".utf8))
+        }
+        delegate.store.quotas.external = [
+            Account(id: "claude1", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 20, codex: nil), failed: false),
+            Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 40, codex: nil), failed: false),
+            Account(id: "codex1", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: try limits(fable: nil, codex: 20), failed: false),
+            Account(id: "codex2", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: try limits(fable: nil, codex: 20, resets: false), failed: false)
+        ]
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel() == "Claude 80% / 60% 5h! 18% / 18%, Codex 80% / 80% remaining")
+        delegate.toggleShowReserve()
+        #expect(preferences.bool(forKey: "showReserve") == true)
+        #expect(item.button?.accessibilityLabel() == "Claude ↗9% / ↘11% 5h! 18% / 18%, Codex ↗9% / ? reserve")
+        delegate.menuNeedsUpdate(delegate.menu)
+        let limitsRow = try #require(delegate.menu.items.firstIndex { $0.title == "Show limits" })
+        #expect(delegate.menu.items[limitsRow].image?.size == NSSize(width: 16, height: 16))
+        #expect(delegate.menu.items[limitsRow + 1].title == "Show average")
+        #expect(delegate.menu.items[limitsRow + 2].title == "Reconnect to T3 Code")
+        delegate.toggleSumAccountLimits()
+        #expect(item.button?.accessibilityLabel() == "Claude ↘1% 5h! 18% / 18%, Codex ↗9% + ? reserve")
+        delegate.menuNeedsUpdate(delegate.menu)
+        #expect(delegate.menu.items.contains { $0.title == "Show per-account reserve" })
+        delegate.toggleShowReserve()
+        #expect(item.button?.accessibilityLabel() == "Claude 140% 5h! 18% / 18%, Codex 160% remaining")
+        delegate.menuNeedsUpdate(delegate.menu)
+        #expect(delegate.menu.items.contains { $0.title == "Show reserve" })
+        #expect(delegate.menu.items.contains { $0.title == "Show per-account limits" })
+    }
+
     @Test @MainActor func fullMenuUsesApplicationAppearanceAndWrappedStatusSummary() {
         let app = NSApplication.shared
         let delegate = AppDelegate()

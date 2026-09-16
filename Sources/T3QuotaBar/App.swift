@@ -307,30 +307,22 @@ extension Account {
             var paceOnTop = true
             var left: String?
             var right: String?
-            if let minutes = window.windowDurationMins, minutes > 0, let reset = window.reset {
-                let duration = minutes * 60
-                let remainingTime = reset.timeIntervalSince(now)
-                let elapsed = duration - remainingTime
-                if remainingTime > 0, remainingTime <= duration, elapsed > 0, window.remaining > 0 {
-                    let expectedUsed = elapsed / duration * 100
-                    let reserve = expectedUsed - window.usedPercent
-                    if expectedUsed >= 3 {
-                        let onPace = abs(reserve) <= 2
-                        left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
-                        pacePercent = onPace ? nil : 100 - expectedUsed
-                        paceOnTop = reserve >= 0
-                        if reserve >= 0 {
-                            right = "Lasts until reset"
-                            let projectedUsage = window.usedPercent * remainingTime / elapsed
-                            if driver == "codex", reserve > 15, projectedUsage > 0, window.remaining / projectedUsage >= 1.5 {
-                                right = "Lasts until reset · 1.5× headroom"
-                            }
-                        } else if window.usedPercent > 0 {
-                            let eta = window.remaining * elapsed / window.usedPercent
-                            let countdown = UsageFormatter.resetCountdownDescription(from: now.addingTimeInterval(eta), now: now)
-                            right = window.kind == "session" ? "Projected empty \(countdown)" : "Runs out \(countdown)"
-                        }
+            if let pace = window.pace(now: now) {
+                let reserve = pace.reserve
+                let onPace = abs(reserve) <= 2
+                left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
+                pacePercent = onPace ? nil : 100 - pace.expectedUsed
+                paceOnTop = reserve >= 0
+                if reserve >= 0 {
+                    right = "Lasts until reset"
+                    let projectedUsage = window.usedPercent * pace.remainingTime / pace.elapsed
+                    if driver == "codex", reserve > 15, projectedUsage > 0, window.remaining / projectedUsage >= 1.5 {
+                        right = "Lasts until reset · 1.5× headroom"
                     }
+                } else if window.usedPercent > 0 {
+                    let eta = window.remaining * pace.elapsed / window.usedPercent
+                    let countdown = UsageFormatter.resetCountdownDescription(from: now.addingTimeInterval(eta), now: now)
+                    right = window.kind == "session" ? "Projected empty \(countdown)" : "Runs out \(countdown)"
                 }
             }
             return .init(
@@ -438,21 +430,27 @@ extension Account {
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let title = NSMutableAttributedString()
         var descriptions: [String] = []
+        let now = Date()
+        let showReserve = preferences.bool(forKey: "showReserve")
         for driver in ["claudeAgent", "codex"] {
             let accounts = store.quotas.accounts.filter { $0.driver == driver }
             let stale = !store.connected || accounts.contains(where: \.stale)
-            let remaining = accounts.map { account in
-                driver == "claudeAgent" ? account.limits?.windows.first { $0.isFable }?.remaining : account.weekly?.remaining
+            let perAccount = accounts.map { account -> Double? in
+                let window = driver == "claudeAgent" ? account.limits?.windows.first { $0.isFable } : account.weekly
+                return showReserve ? window?.pace(now: now)?.reserve : window?.remaining
+            }
+            func format(_ value: Double) -> String {
+                showReserve ? "\(value >= 0 ? "↗" : "↘")\(Int(abs(value).rounded()))%" : "\(Int(value.rounded()))%"
             }
             var values: String
             if preferences.bool(forKey: "sumAccountLimits") {
-                let known = remaining.compactMap { $0 }
-                values = known.isEmpty ? "?" : "\(Int(known.reduce(0, +).rounded()))%"
-                if !known.isEmpty, known.count < remaining.count { values += " + ?" }
+                let known = perAccount.compactMap { $0 }
+                let total = known.reduce(0, +)
+                // Limits sum into account-units of capacity; reserve averages so the scale stays ±100 whatever the account count.
+                values = known.isEmpty ? "?" : format(showReserve ? total / Double(known.count) : total)
+                if !known.isEmpty, known.count < perAccount.count { values += " + ?" }
             } else {
-                values = remaining.isEmpty ? "?" : remaining.map { value in
-                    value.map { "\(Int($0.rounded()))%" } ?? "?"
-                }.joined(separator: " / ")
+                values = perAccount.isEmpty ? "?" : perAccount.map { $0.map(format) ?? "?" }.joined(separator: " / ")
             }
             if driver == "claudeAgent" {
                 let lowSessions = accounts.compactMap { account -> String? in
@@ -482,7 +480,7 @@ extension Account {
         image.isTemplate = true
         item?.button?.image = image
         item?.button?.imagePosition = .imageOnly
-        item?.button?.setAccessibilityLabel(descriptions.joined(separator: ", ") + " remaining")
+        item?.button?.setAccessibilityLabel(descriptions.joined(separator: ", ") + (showReserve ? " reserve" : " remaining"))
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -542,19 +540,29 @@ extension Account {
         if let issue = store.refreshIssue {
             menu.addItem(makeWrappedSecondaryTextItem(text: issue, width: 310))
         }
+        let showReserve = preferences.bool(forKey: "showReserve")
+        let reserve = menu.addItem(withTitle: showReserve ? "Show limits" : "Show reserve", action: #selector(toggleShowReserve), keyEquivalent: "")
+        reserve.target = self
+        reserve.image = NSImage(systemSymbolName: showReserve ? "percent" : "chart.line.uptrend.xyaxis", accessibilityDescription: nil)
         let summed = preferences.bool(forKey: "sumAccountLimits")
-        let sum = menu.addItem(withTitle: summed ? "Show per-account limits" : "Show totals", action: #selector(toggleSumAccountLimits), keyEquivalent: "")
+        let sumTitle = summed ? "Show per-account \(showReserve ? "reserve" : "limits")" : (showReserve ? "Show average" : "Show totals")
+        let sum = menu.addItem(withTitle: sumTitle, action: #selector(toggleSumAccountLimits), keyEquivalent: "")
         sum.target = self
-        sum.image = NSImage(systemSymbolName: summed ? "list.bullet" : "sum", accessibilityDescription: nil)
+        sum.image = NSImage(systemSymbolName: summed ? "list.bullet" : (showReserve ? "divide" : "sum"), accessibilityDescription: nil)
         let reconnect = menu.addItem(withTitle: store.connected ? "Reconnect to T3 Code" : "Connect to T3 Code…", action: #selector(reconnect), keyEquivalent: "")
         reconnect.target = self
         reconnect.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         let quit = menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.image = NSImage(systemSymbolName: "xmark.rectangle", accessibilityDescription: nil)
-        for item in [sum, reconnect, quit] {
+        for item in [reserve, sum, reconnect, quit] {
             item.image?.isTemplate = true
             item.image?.size = NSSize(width: 16, height: 16)
         }
+    }
+
+    @objc func toggleShowReserve() {
+        preferences.set(!preferences.bool(forKey: "showReserve"), forKey: "showReserve")
+        updateTitles()
     }
 
     @objc func toggleSumAccountLimits() {

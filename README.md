@@ -17,6 +17,7 @@ Account labels in this screenshot have been anonymized.
 - A `5h! 18% / 22%` warning appears only for accounts with session remaining below 25%, preserving their relative account order. It disappears when no sessions are below 25%.
 - Weekly percentages for every Codex account.
 - “Show totals” above Reconnect switches each provider to a total, such as `225%` instead of `48% / 80% / 97%`. It becomes “Show per-account limits” to switch back. The choice persists across restarts and defaults to per-account. Totals add account percentages without plan weighting and describe remaining capacity now, not a shared reset period. Missing values appear as `+ ?`; low-session warnings stay per account.
+- “Show reserve” switches the same windows to pace: `↗12%` means 12 points ahead of linear use through the window, `↘5%` means behind. It becomes “Show limits” to switch back and also persists. With totals on, reserve shows the average across accounts rather than a sum, so it stays on a ±100 scale however many accounts you have. `?` marks accounts with no pace yet, such as a window under 3% elapsed or without a reset time.
 - A dropdown with per-account cards, reset countdowns, data age, and available reset credits.
 - Even-pace reserve estimates when T3 supplies the window duration.
 - Provider status and links to the official status pages.

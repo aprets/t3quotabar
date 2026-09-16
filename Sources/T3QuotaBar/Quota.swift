@@ -10,6 +10,27 @@ struct Window: Decodable, Identifiable {
     var remaining: Double { max(0, min(100, 100 - usedPercent)) }
     var isFable: Bool { id.lowercased().contains("fable") || label.lowercased().contains("fable") }
     var reset: Date? { resetsAt.flatMap(parseDate) }
+
+    struct Pace {
+        let expectedUsed: Double
+        let usedPercent: Double
+        let elapsed: TimeInterval
+        let remainingTime: TimeInterval
+        /// Percentage points ahead of linear pace; negative is a deficit.
+        var reserve: Double { expectedUsed - usedPercent }
+    }
+
+    /// Linear pace through the window. Nil until 3% has elapsed, or when the window has no reset, is over, or is empty.
+    func pace(now: Date) -> Pace? {
+        guard let minutes = windowDurationMins, minutes > 0, let reset else { return nil }
+        let duration = minutes * 60
+        let remainingTime = reset.timeIntervalSince(now)
+        let elapsed = duration - remainingTime
+        guard remainingTime > 0, remainingTime <= duration, elapsed > 0, remaining > 0 else { return nil }
+        let expectedUsed = elapsed / duration * 100
+        guard expectedUsed >= 3 else { return nil }
+        return Pace(expectedUsed: expectedUsed, usedPercent: usedPercent, elapsed: elapsed, remainingTime: remainingTime)
+    }
 }
 
 func parseDate(_ value: String) -> Date? {
