@@ -29,17 +29,13 @@ jobs:
           bash scripts/build-app.sh
           codesign --verify --deep --strict dist/T3QuotaBar.app
           ditto -c -k --sequesterRsrc --keepParent dist/T3QuotaBar.app dist/T3QuotaBar-macOS-arm64.zip
-      - name: Publish latest build
+      - name: Publish release
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
-          notes="Automated build from commit ${GITHUB_SHA}.
+          tag="build-${GITHUB_RUN_NUMBER}"
+          notes="Automated build ${GITHUB_RUN_NUMBER} from commit ${GITHUB_SHA}.
 
-          Apple Silicon, macOS 14 or newer. Ad-hoc signed, not notarized. Updates may require reconnecting to T3 Code.
-
-          This release is replaced after each successful main build."
-          # Recreate the release rather than patching it, so its publish date is the build date.
-          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest dist/T3QuotaBar-macOS-arm64.zip --target "$GITHUB_SHA" --title "Latest build" --notes "$notes" --latest
+          Apple Silicon, macOS 14 or newer. Ad-hoc signed, not notarized. Updates may require reconnecting to T3 Code."
+          gh release create "$tag" dist/T3QuotaBar-macOS-arm64.zip --target "$GITHUB_SHA" --title "Build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA:0:7})" --notes "$notes" --latest
