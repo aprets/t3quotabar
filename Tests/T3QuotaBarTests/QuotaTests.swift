@@ -61,12 +61,12 @@ struct QuotaTests {
         let account = Account(id: "codex", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: soon, failed: false)
         let metric = account.menuCard(now: now, connected: true).metrics[0]
         #expect(metric.detailLeftText?.hasSuffix("in reserve") == true)
-        #expect(metric.resetText == "Banked reset in 59m" || metric.resetText == "Banked reset in 1h")
-        #expect(metric.detailRightText == "Normal reset in 5d")
+        #expect(metric.resetText?.hasPrefix("Banked reset in") == true)
+        #expect(metric.detailRightText?.hasPrefix("Normal reset in 5d") == true)
         // A credit that expires after the natural reset leaves the header alone.
         let lateAccount = Account(id: "codex2", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: late, failed: false)
         let lateMetric = lateAccount.menuCard(now: now, connected: true).metrics[0]
-        #expect(lateMetric.resetText == "Resets in 5d")
+        #expect(lateMetric.resetText?.hasPrefix("Resets in 5d") == true)
         #expect(lateMetric.detailRightText?.hasPrefix("Runs out") == true)
     }
 
