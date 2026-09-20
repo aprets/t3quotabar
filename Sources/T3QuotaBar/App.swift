@@ -307,6 +307,10 @@ extension Account {
             var paceOnTop = true
             var left: String?
             var right: String?
+            // A banked reset the balancer will redeem before the natural reset takes over the header; the natural one demotes to the pace line.
+            let banked = limits?.creditReset.flatMap { credit in window.reset.map { credit < $0 } == true ? credit : nil }
+            var resetText = window.reset.map { "Resets \(UsageFormatter.resetCountdownDescription(from: $0, now: now))" }
+            if let banked { resetText = "Banked reset \(UsageFormatter.resetCountdownDescription(from: banked, now: now))" }
             // Skip the forecast while the window is empty or under 3% elapsed; it is noise until then.
             if let pace = window.pace(now: now, creditReset: limits?.creditReset), window.remaining > 0, pace.expectedUsed >= 3 {
                 let reserve = pace.reserve
@@ -314,7 +318,9 @@ extension Account {
                 left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
                 pacePercent = onPace ? nil : 100 - pace.expectedUsed
                 paceOnTop = reserve >= 0
-                if reserve >= 0 {
+                if reserve >= 0, banked != nil, let reset = window.reset {
+                    right = "Normal reset \(UsageFormatter.resetCountdownDescription(from: reset, now: now))"
+                } else if reserve >= 0 {
                     right = "Lasts until reset"
                     let projectedUsage = window.usedPercent * pace.remainingTime / pace.elapsed
                     if driver == "codex", reserve > 15, projectedUsage > 0, window.remaining / projectedUsage >= 1.5 {
@@ -328,7 +334,7 @@ extension Account {
             }
             return .init(
                 id: window.id, title: title, percent: window.remaining, percentStyle: .left,
-                resetText: window.reset.map { "Resets \(UsageFormatter.resetCountdownDescription(from: $0, now: now))" },
+                resetText: resetText,
                 detailText: nil, detailLeftText: left, detailRightText: right,
                 pacePercent: pacePercent, detailIsPaceDerived: left != nil, paceOnTop: paceOnTop,
                 warningMarkerPercents: window.isFable ? [] : (UserDefaults.standard.array(forKey: "\(driver).\(window.kind).warningMarkers") as? [Double] ?? [20, 50]))

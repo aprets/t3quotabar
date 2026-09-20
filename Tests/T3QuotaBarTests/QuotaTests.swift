@@ -57,9 +57,17 @@ struct QuotaTests {
         let late = try limits(creditExpiry: 20 * 86_400)
         let latePace = try #require(late.windows[0].pace(now: now, creditReset: late.creditReset))
         #expect(abs(latePace.expectedUsed - naturalPace.expectedUsed) < 0.01)
-        // The card and bar both read it as under pace.
+        // The card promotes the banked reset to the header and demotes the natural one to the pace line.
         let account = Account(id: "codex", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: soon, failed: false)
-        #expect(account.menuCard(now: now, connected: true).metrics[0].detailLeftText?.hasSuffix("in reserve") == true)
+        let metric = account.menuCard(now: now, connected: true).metrics[0]
+        #expect(metric.detailLeftText?.hasSuffix("in reserve") == true)
+        #expect(metric.resetText == "Banked reset in 59m" || metric.resetText == "Banked reset in 1h")
+        #expect(metric.detailRightText == "Normal reset in 5d")
+        // A credit that expires after the natural reset leaves the header alone.
+        let lateAccount = Account(id: "codex2", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: late, failed: false)
+        let lateMetric = lateAccount.menuCard(now: now, connected: true).metrics[0]
+        #expect(lateMetric.resetText == "Resets in 5d")
+        #expect(lateMetric.detailRightText?.hasPrefix("Runs out") == true)
     }
 
     @Test func bothCodexAccountsRemainDistinctAndShowRemainingNotUsed() throws {
