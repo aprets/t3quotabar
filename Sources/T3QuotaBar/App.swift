@@ -308,7 +308,7 @@ extension Account {
             var left: String?
             var right: String?
             // Skip the forecast while the window is empty or under 3% elapsed; it is noise until then.
-            if let pace = window.pace(now: now), window.remaining > 0, pace.expectedUsed >= 3 {
+            if let pace = window.pace(now: now, creditReset: limits?.creditReset), window.remaining > 0, pace.expectedUsed >= 3 {
                 let reserve = pace.reserve
                 let onPace = abs(reserve) <= 5  // T3 Code's on-pace band
                 left = onPace ? "On pace" : "\(Int(abs(reserve).rounded()))% in \(reserve >= 0 ? "reserve" : "deficit")"
@@ -439,7 +439,7 @@ extension Account {
             let readings = accounts.map { account -> Reading in
                 guard let window = driver == "claudeAgent" ? account.limits?.windows.first(where: \.isFable) : account.weekly else { return .unknown }
                 if !showReserve { return .value(window.remaining) }
-                if let pace = window.pace(now: now) { return .value(pace.reserve) }
+                if let pace = window.pace(now: now, creditReset: account.limits?.creditReset) { return .value(pace.reserve) }
                 // Untouched windows report no reset, so their pace has no clock; they are under pace by any measure.
                 return window.usedPercent == 0 ? .untouched : .unknown
             }

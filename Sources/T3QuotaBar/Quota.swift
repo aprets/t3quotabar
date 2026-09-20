@@ -21,13 +21,16 @@ struct Window: Decodable, Identifiable {
     }
 
     /// Linear pace through the window. Nil when the window has no clock: no length, no reset, or a reset outside the window.
-    func pace(now: Date) -> Pace? {
+    /// `creditReset` is the soonest banked reset credit's expiry: the CPA balancer redeems it just before then, wiping the
+    /// meters, so when it lands before the natural reset it is the reset that matters and the window ends there instead.
+    func pace(now: Date, creditReset: Date? = nil) -> Pace? {
         guard let minutes = windowDurationMins, minutes > 0, let reset else { return nil }
         let duration = minutes * 60
-        let remainingTime = reset.timeIntervalSince(now)
-        let elapsed = duration - remainingTime
-        guard remainingTime > 0, remainingTime <= duration, elapsed > 0 else { return nil }
-        return Pace(expectedUsed: elapsed / duration * 100, usedPercent: usedPercent, elapsed: elapsed, remainingTime: remainingTime)
+        let naturalRemaining = reset.timeIntervalSince(now)
+        let elapsed = duration - naturalRemaining
+        guard naturalRemaining > 0, naturalRemaining <= duration, elapsed > 0 else { return nil }
+        let remainingTime = min(naturalRemaining, creditReset.map { max(0, $0.timeIntervalSince(now)) } ?? naturalRemaining)
+        return Pace(expectedUsed: elapsed / (elapsed + remainingTime) * 100, usedPercent: usedPercent, elapsed: elapsed, remainingTime: remainingTime)
     }
 }
 
@@ -44,6 +47,7 @@ struct Limits: Decodable {
     let windows: [Window]
     let resetCredits: Credits?
     let unavailable: Unavailable?
+    var creditReset: Date? { resetCredits?.nextExpiresAt.flatMap(parseDate) }
 }
 
 struct Account: Identifiable {

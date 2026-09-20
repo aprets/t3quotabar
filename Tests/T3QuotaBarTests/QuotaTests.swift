@@ -32,6 +32,36 @@ struct QuotaTests {
         #expect(!updated)
     }
 
+    @Test func imminentResetCreditShortensThePaceWindow() throws {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        // Two of seven days elapsed with 40% used: well ahead of the natural clock.
+        func limits(creditExpiry: TimeInterval?) throws -> Limits {
+            let credits = creditExpiry.map { ",\"resetCredits\":{\"availableCount\":1,\"nextExpiresAt\":\"\(formatter.string(from: now.addingTimeInterval($0)))\"}" } ?? ""
+            return try JSONDecoder().decode(Limits.self, from: Data("""
+            {"checkedAt":"\(formatter.string(from: now))","windows":[{"id":"primary","kind":"weekly","label":"Weekly","usedPercent":40,"resetsAt":"\(formatter.string(from: now.addingTimeInterval(5 * 86_400)))","windowDurationMins":10080}]\(credits)}
+            """.utf8))
+        }
+        let natural = try limits(creditExpiry: nil)
+        let naturalPace = try #require(natural.windows[0].pace(now: now, creditReset: natural.creditReset))
+        #expect(abs(naturalPace.expectedUsed - 200.0 / 7) < 0.01)
+        #expect(naturalPace.reserve < -5)  // ahead of pace
+        // The balancer redeems the credit in an hour, so the window effectively ends then: 2d of 2d 1h elapsed.
+        let soon = try limits(creditExpiry: 3600)
+        let soonPace = try #require(soon.windows[0].pace(now: now, creditReset: soon.creditReset))
+        #expect(soonPace.expectedUsed > 97)
+        #expect(soonPace.reserve > 5)  // under pace
+        #expect(abs(soonPace.remainingTime - 3600) < 1)
+        // A credit expiring after the natural reset changes nothing.
+        let late = try limits(creditExpiry: 20 * 86_400)
+        let latePace = try #require(late.windows[0].pace(now: now, creditReset: late.creditReset))
+        #expect(abs(latePace.expectedUsed - naturalPace.expectedUsed) < 0.01)
+        // The card and bar both read it as under pace.
+        let account = Account(id: "codex", driver: "codex", name: "Codex", email: nil, plan: nil, source: "CPA", limits: soon, failed: false)
+        #expect(account.menuCard(now: now, connected: true).metrics[0].detailLeftText?.hasSuffix("in reserve") == true)
+    }
+
     @Test func bothCodexAccountsRemainDistinctAndShowRemainingNotUsed() throws {
         let json = """
         {"type":"usageLimitSourcesUpdated","payload":{"sources":[{"id":"cpa","label":"CPA","accounts":[
