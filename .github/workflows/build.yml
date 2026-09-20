@@ -40,11 +40,6 @@ jobs:
           Apple Silicon, macOS 14 or newer. Ad-hoc signed, not notarized. Updates may require reconnecting to T3 Code.
 
           This release is replaced after each successful main build."
-          release_tag=$(gh release list --json tagName --jq '.[] | select(.tagName == "latest") | .tagName')
-          if [[ "$release_tag" == latest ]]; then
-            gh release upload latest dist/T3QuotaBar-macOS-arm64.zip --clobber
-            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
-            gh release edit latest --title "Latest build" --notes "$notes" --prerelease=false --latest
-          else
-            gh release create latest dist/T3QuotaBar-macOS-arm64.zip --target "$GITHUB_SHA" --title "Latest build" --notes "$notes" --latest
-          fi
+          # Recreate the release rather than patching it, so its publish date is the build date.
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest dist/T3QuotaBar-macOS-arm64.zip --target "$GITHUB_SHA" --title "Latest build" --notes "$notes" --latest
