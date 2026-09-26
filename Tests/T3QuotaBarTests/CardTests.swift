@@ -31,7 +31,7 @@ struct CardTests {
         ]
         delegate.store.connected = true
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel() == "Claude 80%, Codex 65% / 65% remaining")
+        #expect(item.button?.accessibilityLabel() == "Claude 90%, Codex 65% / 65% remaining")
         #expect(item.button?.toolTip == nil)
         let image = try #require(item.button?.image)
         #expect(image.isTemplate)
@@ -43,12 +43,12 @@ struct CardTests {
         #expect(delegate.menu.items.contains { $0.title == "Codex Status Page" })
         #expect(delegate.store.quotas.external[0].menuCard(now: Date(), connected: true).metrics.map(\.title) == ["Session", "Weekly", "Fable only"])
         let secondClaude = try JSONDecoder().decode(Limits.self, from: Data("""
-        {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":22},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":52}]}
+        {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":22},{"id":"seven_day","kind":"weekly","label":"Weekly","usedPercent":30},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":52}]}
         """.utf8))
         delegate.store.quotas.external.append(Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: secondClaude, failed: false))
         delegate.store.quotas.external.append(Account(id: "claude3", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: nil, failed: false))
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel() == "Claude 80% / 48% / ? ·, Codex 65% / 65% remaining")
+        #expect(item.button?.accessibilityLabel() == "Claude 90% / 70% / ? ·, Codex 65% / 65% remaining")
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -86,13 +86,49 @@ struct CardTests {
         ] {
             delegate.store.quotas.external = try used.enumerated().map { index, usedPercent in
                 let limits = try JSONDecoder().decode(Limits.self, from: Data("""
-                {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":\(usedPercent)},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":\(index * 10)}]}
+                {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":\(usedPercent)},{"id":"seven_day","kind":"weekly","label":"Weekly","usedPercent":\(index * 10)},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":\(index * 10)}]}
                 """.utf8))
                 return Account(id: "claude\(index)", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: limits, failed: false)
             }
             delegate.updateTitles()
             #expect(item.button?.accessibilityLabel() == "Claude 100% / 90% / 80%\(expected), Codex ? remaining")
         }
+    }
+
+    @Test @MainActor func fableWarnsBelowTwentyFivePooledWithTotalsAndSkipsAccountsAboutToReset() throws {
+        _ = NSApplication.shared
+        let delegate = AppDelegate()
+        let suite = "T3QuotaBarTests.\(UUID().uuidString)"
+        let preferences = try #require(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        delegate.preferences = preferences
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        delegate.item = item
+        delegate.store.connected = true
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let now = Date()
+        func accounts(_ fable: [(used: Int, resetHours: Double)]) throws -> [Account] {
+            try fable.enumerated().map { index, entry in
+                let limits = try JSONDecoder().decode(Limits.self, from: Data("""
+                {"checkedAt":"\(formatter.string(from: now))","windows":[{"id":"seven_day","kind":"weekly","label":"Weekly","usedPercent":20},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":\(entry.used),"resetsAt":"\(formatter.string(from: now.addingTimeInterval(entry.resetHours * 3600)))"}]}
+                """.utf8))
+                return Account(id: "claude\(index)", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: limits, failed: false)
+            }
+        }
+        // Two low accounts; a third is lower still but refills within the hour, so it never counts.
+        delegate.store.quotas.external = try accounts([(85, 72), (89, 72), (99, 1)])
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel() == "Claude 80% / 80% / 80% F! 15% / 11%, Codex ? remaining")
+        delegate.toggleSumAccountLimits()
+        #expect(item.button?.accessibilityLabel() == "Claude 240% F! 13%, Codex ? remaining")
+        // One account low but the pool healthy: totals stay quiet, per-account still names it.
+        delegate.store.quotas.external = try accounts([(90, 72), (40, 72)])
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel() == "Claude 160%, Codex ? remaining")
+        delegate.toggleSumAccountLimits()
+        #expect(item.button?.accessibilityLabel() == "Claude 80% / 80% F! 10%, Codex ? remaining")
     }
 
     @Test @MainActor func sumTogglePersistsTotalsWithoutHidingLowSessionsOrMissingAccounts() throws {
@@ -109,7 +145,7 @@ struct CardTests {
         let checkedAt = ISO8601DateFormatter().string(from: Date())
         for (index, driver) in ["claudeAgent", "claudeAgent", "codex", "codex"].enumerated() {
             let limits = try JSONDecoder().decode(Limits.self, from: Data("""
-            {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":82},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":20}]}
+            {"checkedAt":"\(checkedAt)","windows":[{"id":"five_hour","kind":"session","label":"Session","usedPercent":82},{"id":"seven_day","kind":"weekly","label":"Weekly","usedPercent":20},{"id":"seven_day_fable","kind":"weekly","label":"Weekly · Fable","usedPercent":20}]}
             """.utf8))
             delegate.store.quotas.external.append(Account(id: "account\(index)", driver: driver, name: driver, email: nil, plan: nil, source: "CPA", limits: limits, failed: false))
         }
@@ -159,7 +195,7 @@ struct CardTests {
         let reset = formatter.string(from: Date().addingTimeInterval(5 * 86_400))
         func limits(fable: Double?, codex: Double?, resets: Bool = true, session: Double = 82, credits: Int = 0) throws -> Limits {
             let resetsAt = resets ? "\"\(reset)\"" : "null"
-            let windows = fable.map { "{\"id\":\"five_hour\",\"kind\":\"session\",\"label\":\"Session\",\"usedPercent\":\(session)},{\"id\":\"seven_day_fable\",\"kind\":\"weekly\",\"label\":\"Weekly · Fable\",\"usedPercent\":\($0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}" }
+            let windows = fable.map { "{\"id\":\"five_hour\",\"kind\":\"session\",\"label\":\"Session\",\"usedPercent\":\(session)},{\"id\":\"seven_day\",\"kind\":\"weekly\",\"label\":\"Weekly\",\"usedPercent\":\($0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080},{\"id\":\"seven_day_fable\",\"kind\":\"weekly\",\"label\":\"Weekly · Fable\",\"usedPercent\":\($0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}" }
                 ?? "{\"id\":\"primary\",\"kind\":\"weekly\",\"label\":\"Weekly\",\"usedPercent\":\(codex ?? 0),\"resetsAt\":\(resetsAt),\"windowDurationMins\":10080}"
             return try JSONDecoder().decode(Limits.self, from: Data("{\"checkedAt\":\"\(checkedAt)\",\"windows\":[\(windows)],\"resetCredits\":{\"availableCount\":\(credits)}}".utf8))
         }

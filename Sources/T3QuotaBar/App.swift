@@ -443,7 +443,7 @@ extension Account {
             let stale = !store.connected || accounts.contains(where: \.stale)
             enum Reading { case value(Double), untouched, unknown }
             let readings = accounts.map { account -> Reading in
-                guard let window = driver == "claudeAgent" ? account.limits?.windows.first(where: \.isFable) : account.weekly else { return .unknown }
+                guard let window = account.weekly else { return .unknown }
                 if !showReserve { return .value(window.remaining) }
                 if let pace = window.pace(now: now, creditReset: account.limits?.creditReset) { return .value(pace.reserve) }
                 // Untouched windows report no reset, so their pace has no clock; they are under pace by any measure.
@@ -481,6 +481,17 @@ extension Account {
                     return "\(Int(window.remaining.rounded()))%"
                 }.joined(separator: " / ")
                 if !lowSessions.isEmpty { values += " 5h! \(lowSessions)" }
+                // Fable is a smaller bucket inside the weekly one, so it only surfaces when running low. Accounts within a day of
+                // their Fable reset are about to refill and stay out. With totals on it pools, since the balancer routes other
+                // models to accounts whose Fable is spent; per account it lists the low ones like the session warning.
+                let fable = accounts.compactMap { account -> Double? in
+                    guard let window = account.limits?.windows.first(where: \.isFable) else { return nil }
+                    if let reset = window.reset, reset.timeIntervalSince(now) < 86_400 { return nil }
+                    return window.remaining
+                }
+                let pooled = preferences.bool(forKey: "sumAccountLimits") ? (fable.isEmpty ? [] : [fable.reduce(0, +) / Double(fable.count)]) : fable
+                let lowFable = pooled.filter { $0 < 25 }.map { "\(Int($0.rounded()))%" }.joined(separator: " / ")
+                if !lowFable.isEmpty { values += " F! \(lowFable)" }
             }
             let readout = values + (stale ? " ·" : "")
             // Banked reset credits (Codex only) draw as pips inside each pace glyph, one slot per glyph in readout order; totals pool them.
