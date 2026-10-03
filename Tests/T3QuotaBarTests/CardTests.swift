@@ -211,15 +211,15 @@ struct CardTests {
         #expect(item.button?.accessibilityLabel() == "Claude 80% / 60% / 100% 5h! 18% / 18%, Codex 80% / 80% remaining")
         delegate.toggleShowReserve()
         #expect(preferences.bool(forKey: "showReserve") == true)
-        // Without keeper data the number is what is left in the current window; the untouched account has no clock, so no arrow.
-        #expect(item.button?.accessibilityLabel() == "Claude 9 under, 80% left / 11 over, 60% left / no clock, 100% left 5h! 18% / 18%, Codex 9 under, 80% left / no clock, 80% left")
-        // Keeper's seven-day usage replaces it, matched by email; a reading older than an hour is ignored.
+        // Without keeper data the number is a dash; the untouched account has no clock, so no arrow.
+        #expect(item.button?.accessibilityLabel() == "Claude 9 under, – left / 11 over, – left / no clock, – left 5h! 18% / 18%, Codex 9 under, – left / no clock, – left")
+        // Keeper's seven-day usage fills it in, matched by email; a reading older than an hour is ignored.
         delegate.store.keeperUsage = (Date().addingTimeInterval(-7200), ["claudeAgent|a@example.com": 30])
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, 80% left /") == true)
+        #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, – left /") == true)
         delegate.store.keeperUsage = (Date(), ["claudeAgent|a@example.com": 30])
         delegate.updateTitles()
-        #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, 70% left /") == true)
+        #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, 70% left / 11 over, – left /") == true)
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let image = try #require(item.button?.image)
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
@@ -247,7 +247,8 @@ struct CardTests {
         #expect(delegate.menu.items[limitsRow + 1].title == "Show average")
         #expect(delegate.menu.items[limitsRow + 2].title == "Reconnect to T3 Code")
         delegate.toggleSumAccountLimits()
-        #expect(item.button?.accessibilityLabel() == "Claude on pace, 77% left 5h! 18% / 18%, Codex 9 under, 80% left")
+        // Totals average the accounts keeper knows and flag the rest.
+        #expect(item.button?.accessibilityLabel() == "Claude on pace, 70% left + – 5h! 18% / 18%, Codex 9 under, – left")
         delegate.menuNeedsUpdate(delegate.menu)
         #expect(delegate.menu.items.contains { $0.title == "Show per-account reserve" })
         delegate.toggleShowReserve()

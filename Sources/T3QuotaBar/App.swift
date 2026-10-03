@@ -556,12 +556,11 @@ extension Account {
                 continue
             }
             // The arrow is the pace gap on each account's own clock, which tracks how much is up for grabs before resets.
-            // The number is how much of the weekly allowance went unused over the last seven days, from CPA Usage Keeper;
-            // without keeper data it falls back to what is left in the current window. Totals average both.
+            // The number is how much of the weekly allowance went unused over the last seven days, from CPA Usage Keeper,
+            // or a dash without keeper data; the dropdown still shows each current window. Totals average both.
             let readings = accounts.map { account -> (gap: Double?, left: Double?) in
-                let window = account.weekly
                 let used = store.keeperWeekUsed(driver: driver, email: account.email, now: now)
-                return (window?.pace(now: now, creditReset: account.limits?.creditReset)?.reserve, used.map { max(0, 100 - $0) } ?? window?.remaining)
+                return (account.weekly?.pace(now: now, creditReset: account.limits?.creditReset)?.reserve, used.map { max(0, 100 - $0) })
             }
             func average(_ values: [Double]) -> Double? { values.isEmpty ? nil : values.reduce(0, +) / Double(values.count) }
             let shown = totals ? [(gap: average(readings.compactMap(\.gap)), left: average(readings.compactMap(\.left)))] : readings
@@ -572,7 +571,7 @@ extension Account {
                     title.append(attach(arrow(gap)))
                     title.append(text(" "))
                 }
-                let number = reading.left.map { "\(Int($0.rounded()))%" } ?? "?"
+                let number = reading.left.map { "\(Int($0.rounded()))%" } ?? "–"
                 title.append(text(number))
                 let pace = reading.gap.map { abs($0) <= 5 ? "on pace" : "\(Int(abs($0).rounded())) \($0 > 0 ? "under" : "over")" } ?? "no clock"
                 parts.append("\(pace), \(number) left")
@@ -582,7 +581,7 @@ extension Account {
                 parts.append("?")
             }
             var missing = ""
-            if totals, shown.first?.left != nil, readings.contains(where: { $0.left == nil }) { missing = " + ?" }
+            if totals, shown.first?.left != nil, readings.contains(where: { $0.left == nil }) { missing = " + –" }
             title.append(text(missing + warnings))
             descriptions.append("\(name) \(parts.joined(separator: " / "))\(missing)\(warnings)")
         }
