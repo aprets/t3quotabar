@@ -34,6 +34,37 @@ struct Window: Decodable, Identifiable {
     }
 }
 
+/// One account's weekly quota history from CPA Usage Keeper: each window period with the points it lost and when.
+struct KeeperHistory: Decodable {
+    struct Window: Decodable { let window_role: String; let window_seconds: Int }
+    struct Cycle: Decodable {
+        struct Transition: Decodable { let percentage_points: Double; let interval_ended_at: String }
+        let window_started_at: String
+        let first_observed_at: String?
+        let first_remaining_percent: Double?
+        let transitions: [Transition]?
+    }
+    let windows: [Window]
+    let selected_window: Window?
+    let cycles: [Cycle]
+
+    /// Points of allowance used since `start`. Keeper often first sees a window part-way through, so the points already
+    /// gone by then are assumed spent evenly from the window's start, and only the share after `start` counts.
+    func used(since start: Date) -> Double {
+        cycles.reduce(0) { total, cycle in
+            var used = total
+            if let first = cycle.first_remaining_percent, let opened = parseDate(cycle.window_started_at),
+               let seen = cycle.first_observed_at.flatMap(parseDate), seen > opened {
+                used += (100 - first) * max(0, seen.timeIntervalSince(max(opened, start))) / seen.timeIntervalSince(opened)
+            }
+            for step in cycle.transitions ?? [] where (parseDate(step.interval_ended_at) ?? .distantPast) >= start {
+                used += step.percentage_points
+            }
+            return used
+        }
+    }
+}
+
 func parseDate(_ value: String) -> Date? {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

@@ -70,6 +70,23 @@ struct QuotaTests {
         #expect(lateMetric.detailRightText?.hasPrefix("Runs out") == true)
     }
 
+    @Test func keeperWeekUsageCountsStepsInsideTheWeekAndSpreadsUnseenUsage() throws {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func at(_ days: Double) -> String { formatter.string(from: now.addingTimeInterval(-days * 86_400)) }
+        let history = try JSONDecoder().decode(KeeperHistory.self, from: Data("""
+        {"windows":[{"window_role":"secondary","window_seconds":604800}],"selected_window":{"window_role":"secondary","window_seconds":604800},"cycles":[
+          {"window_started_at":"\(at(9))","first_observed_at":"\(at(3))","first_remaining_percent":40,"transitions":[
+            {"percentage_points":5,"interval_ended_at":"\(at(8))"},{"percentage_points":2,"interval_ended_at":"\(at(2.5))"}]},
+          {"window_started_at":"\(at(2))","first_observed_at":"\(at(2))","first_remaining_percent":100,"transitions":[
+            {"percentage_points":1,"interval_ended_at":"\(at(1.5))"},{"percentage_points":1,"interval_ended_at":"\(at(1))"},{"percentage_points":1,"interval_ended_at":"\(at(0.5))"}]}]}
+        """.utf8))
+        // 60 points went before keeper first looked, spread over six days; four of them fall inside the week, so 40 count.
+        // Of the observed steps, the one eight days ago is outside the week: 2 + 3 more.
+        #expect(abs(history.used(since: now.addingTimeInterval(-7 * 86_400)) - 45) < 0.01)
+    }
+
     @Test func bothCodexAccountsRemainDistinctAndShowRemainingNotUsed() throws {
         let json = """
         {"type":"usageLimitSourcesUpdated","payload":{"sources":[{"id":"cpa","label":"CPA","accounts":[

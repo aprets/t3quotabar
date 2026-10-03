@@ -170,7 +170,7 @@ struct CardTests {
         #expect(item.button?.accessibilityLabel() == "Claude ? / 80% 5h! 18% ·, Codex 80% / 80% remaining")
     }
 
-    @Test @MainActor func reserveToggleShowsPaceArrowsAndAveragesInsteadOfSumming() throws {
+    @Test @MainActor func reserveShowsPaceArrowAndWeekRemainingFromKeeper() throws {
         _ = NSApplication.shared
         let delegate = AppDelegate()
         let suite = "T3QuotaBarTests.\(UUID().uuidString)"
@@ -180,10 +180,10 @@ struct CardTests {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
         delegate.item = item
-        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0), ("⏲", "PaceIcon-on", 14.0)] {
+        for (key, name) in [("claudeAgent", "ProviderIcon-claude"), ("codex", "ProviderIcon-codex")] {
             let url = try #require(Bundle.module.url(forResource: name, withExtension: "svg", subdirectory: "Resources"))
             let icon = try #require(NSImage(contentsOf: url))
-            icon.size = NSSize(width: size, height: size)
+            icon.size = NSSize(width: 18, height: 18)
             icon.isTemplate = true
             delegate.icons[key] = icon
         }
@@ -200,7 +200,7 @@ struct CardTests {
             return try JSONDecoder().decode(Limits.self, from: Data("{\"checkedAt\":\"\(checkedAt)\",\"windows\":[\(windows)],\"resetCredits\":{\"availableCount\":\(credits)}}".utf8))
         }
         delegate.store.quotas.external = [
-            Account(id: "claude1", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 20, codex: nil), failed: false),
+            Account(id: "claude1", driver: "claudeAgent", name: "Claude", email: "A@example.com", plan: nil, source: "CPA", limits: try limits(fable: 20, codex: nil), failed: false),
             Account(id: "claude2", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 40, codex: nil), failed: false),
             // Untouched: Claude reports no reset until something is used, so there is no clock to pace against.
             Account(id: "claude3", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: try limits(fable: 0, codex: nil, resets: false, session: 0), failed: false),
@@ -211,7 +211,15 @@ struct CardTests {
         #expect(item.button?.accessibilityLabel() == "Claude 80% / 60% / 100% 5h! 18% / 18%, Codex 80% / 80% remaining")
         delegate.toggleShowReserve()
         #expect(preferences.bool(forKey: "showReserve") == true)
-        #expect(item.button?.accessibilityLabel() == "Claude ↘9% / ↗11% / ↘ 5h! 18% / 18%, Codex ↘9% / ? (2 reset credits) reserve")
+        // Without keeper data the number is what is left in the current window; the untouched account has no clock, so no arrow.
+        #expect(item.button?.accessibilityLabel() == "Claude 9 under, 80% left / 11 over, 60% left / no clock, 100% left 5h! 18% / 18%, Codex 9 under, 80% left / no clock, 80% left")
+        // Keeper's seven-day usage replaces it, matched by email; a reading older than an hour is ignored.
+        delegate.store.keeperUsage = (Date().addingTimeInterval(-7200), ["claudeAgent|a@example.com": 30])
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, 80% left /") == true)
+        delegate.store.keeperUsage = (Date(), ["claudeAgent|a@example.com": 30])
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, 70% left /") == true)
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let image = try #require(item.button?.image)
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")
@@ -239,7 +247,7 @@ struct CardTests {
         #expect(delegate.menu.items[limitsRow + 1].title == "Show average")
         #expect(delegate.menu.items[limitsRow + 2].title == "Reconnect to T3 Code")
         delegate.toggleSumAccountLimits()
-        #expect(item.button?.accessibilityLabel() == "Claude ⏲1% 5h! 18% / 18%, Codex ↘9% + ? (2 reset credits) reserve")
+        #expect(item.button?.accessibilityLabel() == "Claude on pace, 77% left 5h! 18% / 18%, Codex 9 under, 80% left")
         delegate.menuNeedsUpdate(delegate.menu)
         #expect(delegate.menu.items.contains { $0.title == "Show per-account reserve" })
         delegate.toggleShowReserve()

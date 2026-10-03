@@ -26,6 +26,45 @@ struct AppFailure: LocalizedError {
     private var sessionTokens: [String: String] = [:]
     var refreshSchedule = QuotaRefreshSchedule()
     @Published var refreshIssue: String?
+    /// Weekly allowance each account used over the last seven days, keyed by driver and email, from CPA Usage Keeper.
+    var keeperUsage: (at: Date, used: [String: Double])?
+
+    func keeperWeekUsed(driver: String, email: String?, now: Date) -> Double? {
+        guard let keeperUsage, now.timeIntervalSince(keeperUsage.at) < 3600, let email else { return nil }
+        return keeperUsage.used["\(driver)|\(email.lowercased())"]
+    }
+
+    /// Reads every enabled account's weekly quota history from the keeper at the `keeperURL` default. Failures keep the last
+    /// reading, which expires after an hour.
+    func refreshKeeper() async {
+        guard let base = UserDefaults.standard.string(forKey: "keeperURL").flatMap(URL.init(string:)) else { return }
+        struct Identities: Decodable {
+            struct Identity: Decodable { let identity: String; let name: String; let provider: String; let disabled: Bool }
+            let identities: [Identity]
+        }
+        let api = base.appendingPathComponent("api/v1")
+        do {
+            let identities = try JSONDecoder().decode(Identities.self, from: await request(api.appendingPathComponent("usage/identities"))).identities
+            let now = Date()
+            var used: [String: Double] = [:]
+            for identity in identities where !identity.disabled && ["claude", "codex"].contains(identity.provider) {
+                let url = api.appendingPathComponent("quota/history/\(identity.identity)")
+                var history = try JSONDecoder().decode(KeeperHistory.self, from: await request(url))
+                // The default window is the first one, which is Claude's five-hour session; ask for the weekly one by role.
+                if history.selected_window?.window_seconds != 604_800, let weekly = history.windows.first(where: { $0.window_seconds == 604_800 }) {
+                    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+                    components.queryItems = [URLQueryItem(name: "window_role", value: weekly.window_role)]
+                    history = try JSONDecoder().decode(KeeperHistory.self, from: await request(components.url!))
+                }
+                guard history.selected_window?.window_seconds == 604_800 else { continue }
+                used["\(identity.provider == "codex" ? "codex" : "claudeAgent")|\(identity.name.lowercased())"] = history.used(since: now.addingTimeInterval(-7 * 86_400))
+            }
+            keeperUsage = (now, used)
+            onChange?()
+        } catch {
+            NSLog("T3QuotaBar keeper: %@", "\(error)")
+        }
+    }
 
     func start(pair: Bool = false) {
         connection?.cancel()
@@ -247,8 +286,10 @@ struct AppFailure: LocalizedError {
                 }
                 if CommandLine.arguments.contains("--diagnose"), !quotas.external.isEmpty {
                     for account in quotas.accounts {
-                        print("\(account.driver): \(account.compact); windows=\(account.limits?.windows.map(\.id).joined(separator: ",") ?? "none"); credits=\(account.limits?.resetCredits?.availableCount ?? 0)")
+                        print("\(account.driver) \(account.email ?? "no email"): \(account.compact); windows=\(account.limits?.windows.map(\.id).joined(separator: ",") ?? "none"); credits=\(account.limits?.resetCredits?.availableCount ?? 0)")
                     }
+                    await refreshKeeper()
+                    print("keeper: \(keeperUsage?.used.map { "\($0.key)=\(Int($0.value))" }.sorted().joined(separator: " ") ?? "no reading")")
                     NSApplication.shared.terminate(nil)
                 }
             } else if ["Exit", "Defect", "ClientProtocolError"].contains(envelope._tag) {
@@ -403,9 +444,9 @@ extension Account {
         item.button?.identifier = NSUserInterfaceItemIdentifier("combined")
         let packagedResources = Bundle.main.resourceURL?.appendingPathComponent("T3QuotaBar_T3QuotaBar.bundle")
         let resourceBundle = packagedResources.flatMap { Bundle(url: $0) } ?? Bundle.module
-        for (key, name, size) in [("claudeAgent", "ProviderIcon-claude", 18.0), ("codex", "ProviderIcon-codex", 18.0), ("↗", "PaceIcon-ahead", 14.0), ("↘", "PaceIcon-under", 14.0), ("⏲", "PaceIcon-on", 14.0)] {
+        for (key, name) in [("claudeAgent", "ProviderIcon-claude"), ("codex", "ProviderIcon-codex")] {
             if let url = resourceBundle.url(forResource: name, withExtension: "svg", subdirectory: "Resources"), let image = NSImage(contentsOf: url) {
-                image.size = NSSize(width: size, height: size)
+                image.size = NSSize(width: 18, height: 18)
                 image.isTemplate = true
                 icons[key] = image
             }
@@ -414,10 +455,12 @@ extension Account {
         updateTitles()
         store.start(pair: CommandLine.arguments.contains("--pair"))
         Task { await store.refreshStatus() }
+        Task { await store.refreshKeeper() }
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateTitles()
                 await self?.store.refreshStatus()
+                await self?.store.refreshKeeper()
             }
         }
     }
@@ -438,49 +481,47 @@ extension Account {
         var descriptions: [String] = []
         let now = Date()
         let showReserve = preferences.bool(forKey: "showReserve")
+        let totals = preferences.bool(forKey: "sumAccountLimits")
+        func text(_ string: String) -> NSAttributedString { NSAttributedString(string: string, attributes: [.font: font, .foregroundColor: NSColor.black]) }
+        func attach(_ image: NSImage) -> NSAttributedString {
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            attachment.bounds = NSRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
+            return NSAttributedString(attachment: attachment)
+        }
+        // The pace arrow is Lucide's trending head on a straight shaft. Pointing right is on pace. It turns 1.8° per point of
+        // gap, so 50 under points straight down and 100 under points left; over pace turns it up.
+        func arrow(_ gap: Double) -> NSImage {
+            let image = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in
+                guard let context = NSGraphicsContext.current?.cgContext else { return false }
+                context.translateBy(x: rect.midX, y: rect.midY)
+                context.rotate(by: -max(-100, min(100, gap)) * 1.8 * .pi / 180)
+                context.scaleBy(x: rect.width / 24, y: rect.height / 24)
+                context.translateBy(x: -12, y: -12)
+                let path = NSBezierPath()
+                path.move(to: NSPoint(x: 3, y: 12)); path.line(to: NSPoint(x: 21, y: 12))
+                path.move(to: NSPoint(x: 16, y: 17)); path.line(to: NSPoint(x: 21, y: 12)); path.line(to: NSPoint(x: 16, y: 7))
+                path.lineWidth = 2.5
+                path.lineCapStyle = .round
+                path.lineJoinStyle = .round
+                NSColor.black.setStroke()
+                path.stroke()
+                return true
+            }
+            image.isTemplate = true
+            return image
+        }
         for driver in ["claudeAgent", "codex"] {
             let accounts = store.quotas.accounts.filter { $0.driver == driver }
-            let stale = !store.connected || accounts.contains(where: \.stale)
-            enum Reading { case value(Double), untouched, unknown }
-            let readings = accounts.map { account -> Reading in
-                guard let window = account.weekly else { return .unknown }
-                if !showReserve { return .value(window.remaining) }
-                if let pace = window.pace(now: now, creditReset: account.limits?.creditReset) { return .value(pace.reserve) }
-                // Untouched windows report no reset, so their pace has no clock; they are under pace by any measure.
-                return window.usedPercent == 0 ? .untouched : .unknown
-            }
-            // Glyphs follow T3 Code: within five points of the clock is on pace (gauge), ↗ is ahead (spending faster than the window elapses), ↘ is under.
-            func format(_ value: Double) -> String {
-                guard showReserve else { return "\(Int(value.rounded()))%" }
-                let glyph = abs(value) <= 5 ? "⏲" : value < 0 ? "↗" : "↘"
-                return "\(glyph)\(Int(abs(value).rounded()))%"
-            }
-            let known = readings.compactMap { if case .value(let value) = $0 { value } else { nil } }
-            let untouched = readings.contains { if case .untouched = $0 { true } else { false } }
-            let unknown = readings.contains { if case .unknown = $0 { true } else { false } }
-            var values: String
-            if preferences.bool(forKey: "sumAccountLimits") {
-                let total = known.reduce(0, +)
-                // Limits sum into account-units of capacity; reserve averages so the scale stays ±100 whatever the account count.
-                // Untouched windows have no clock to average over, so they stay out, as T3 Code's pools do.
-                values = known.isEmpty ? (untouched ? "↘" : "?") : format(showReserve ? total / Double(known.count) : total)
-                if !known.isEmpty, unknown { values += " + ?" }
-            } else {
-                values = readings.isEmpty ? "?" : readings.map { reading in
-                    switch reading {
-                    case .value(let value): format(value)
-                    case .untouched: "↘"
-                    case .unknown: "?"
-                    }
-                }.joined(separator: " / ")
-            }
+            let name = driver == "codex" ? "Codex" : "Claude"
+            var warnings = ""
             if driver == "claudeAgent" {
                 let lowSessions = accounts.compactMap { account -> String? in
                     guard let window = account.limits?.windows.first(where: { $0.kind == "session" }),
                           window.remaining < 25 else { return nil }
                     return "\(Int(window.remaining.rounded()))%"
                 }.joined(separator: " / ")
-                if !lowSessions.isEmpty { values += " 5h! \(lowSessions)" }
+                if !lowSessions.isEmpty { warnings += " 5h! \(lowSessions)" }
                 // Fable is a smaller bucket inside the weekly one, so it only surfaces when running low. Accounts within a day of
                 // their Fable reset are about to refill and stay out. With totals on it pools, since the balancer routes other
                 // models to accounts whose Fable is spent; per account it lists the low ones like the session warning.
@@ -489,53 +530,61 @@ extension Account {
                     if let reset = window.reset, reset.timeIntervalSince(now) < 86_400 { return nil }
                     return window.remaining
                 }
-                let pooled = preferences.bool(forKey: "sumAccountLimits") ? (fable.isEmpty ? [] : [fable.reduce(0, +) / Double(fable.count)]) : fable
+                let pooled = totals ? (fable.isEmpty ? [] : [fable.reduce(0, +) / Double(fable.count)]) : fable
                 let lowFable = pooled.filter { $0 < 25 }.map { "\(Int($0.rounded()))%" }.joined(separator: " / ")
-                if !lowFable.isEmpty { values += " F! \(lowFable)" }
+                if !lowFable.isEmpty { warnings += " F! \(lowFable)" }
             }
-            let readout = values + (stale ? " ·" : "")
-            // Banked reset credits (Codex only) draw as pips inside each pace glyph, one slot per glyph in readout order; totals pool them.
-            let credits = accounts.map { $0.limits?.resetCredits?.availableCount ?? 0 }
-            var pips: [Int] = preferences.bool(forKey: "sumAccountLimits") ? [credits.reduce(0, +)] : zip(readings, credits).compactMap { reading, count in
-                if case .unknown = reading { nil } else { count }
-            }
-            func badged(_ icon: NSImage, pips count: Int) -> NSImage {
-                let pip: CGFloat = 2.1, pitch: CGFloat = 2.9
-                let xs: [CGFloat] = switch min(count, 3) { case 1: [0]; case 2: [-pitch / 2, pitch / 2]; default: [-pitch, 0, pitch] }
-                let image = NSImage(size: icon.size, flipped: true) { rect in
-                    icon.draw(in: rect)
-                    NSColor.black.setFill()
-                    for x in xs {  // centred along the glyph's open bottom band, 22.2 of 24 units down
-                        NSBezierPath(ovalIn: NSRect(x: rect.midX + x - pip / 2, y: 22.2 / 24 * rect.height - pip / 2, width: pip, height: pip)).fill()
-                    }
-                    return true
-                }
-                image.isTemplate = true
-                return image
-            }
-            if title.length > 0 { title.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
+            if !store.connected || accounts.contains(where: \.stale) { warnings += " ·" }
+            if title.length > 0 { title.append(text("   ")) }
             if let icon = icons[driver] {
-                let attachment = NSTextAttachment()
-                attachment.image = icon
-                attachment.bounds = NSRect(x: 0, y: (font.capHeight - 18) / 2, width: 18, height: 18)
-                title.append(NSAttributedString(attachment: attachment))
-                title.append(NSAttributedString(string: " ", attributes: [.font: font]))
+                title.append(attach(icon))
+                title.append(text(" "))
             }
-            for character in readout {
-                if let icon = icons[String(character)] {
-                    // Arrows render as T3 Code's Lucide pace icons, sized to stand out since direction matters more than the number.
-                    let attachment = NSTextAttachment()
-                    let count = pips.isEmpty ? 0 : pips.removeFirst()
-                    attachment.image = count > 0 ? badged(icon, pips: count) : icon
-                    attachment.bounds = NSRect(x: 0, y: (font.capHeight - icon.size.height) / 2, width: icon.size.width, height: icon.size.height)
-                    title.append(NSAttributedString(attachment: attachment))
-                    title.append(NSAttributedString(string: " ", attributes: [.font: font]))
+            guard showReserve else {
+                let remaining = accounts.map { $0.weekly?.remaining }
+                let known = remaining.compactMap { $0 }
+                var values: String
+                if totals {
+                    // Limits sum into account-units of capacity.
+                    values = known.isEmpty ? "?" : "\(Int(known.reduce(0, +).rounded()))%"
+                    if !known.isEmpty, known.count < remaining.count { values += " + ?" }
                 } else {
-                    title.append(NSAttributedString(string: String(character), attributes: [.font: font, .foregroundColor: NSColor.black]))
+                    values = remaining.isEmpty ? "?" : remaining.map { $0.map { "\(Int($0.rounded()))%" } ?? "?" }.joined(separator: " / ")
                 }
+                title.append(text(values + warnings))
+                descriptions.append("\(name) \(values + warnings)")
+                continue
             }
-            let banked = credits.reduce(0, +)
-            descriptions.append("\(driver == "codex" ? "Codex" : "Claude") \(readout)" + (showReserve && banked > 0 ? " (\(banked) reset credits)" : ""))
+            // The arrow is the pace gap on each account's own clock, which tracks how much is up for grabs before resets.
+            // The number is how much of the weekly allowance went unused over the last seven days, from CPA Usage Keeper;
+            // without keeper data it falls back to what is left in the current window. Totals average both.
+            let readings = accounts.map { account -> (gap: Double?, left: Double?) in
+                let window = account.weekly
+                let used = store.keeperWeekUsed(driver: driver, email: account.email, now: now)
+                return (window?.pace(now: now, creditReset: account.limits?.creditReset)?.reserve, used.map { max(0, 100 - $0) } ?? window?.remaining)
+            }
+            func average(_ values: [Double]) -> Double? { values.isEmpty ? nil : values.reduce(0, +) / Double(values.count) }
+            let shown = totals ? [(gap: average(readings.compactMap(\.gap)), left: average(readings.compactMap(\.left)))] : readings
+            var parts: [String] = []
+            for (index, reading) in shown.enumerated() {
+                if index > 0 { title.append(text(" / ")) }
+                if let gap = reading.gap {
+                    title.append(attach(arrow(gap)))
+                    title.append(text(" "))
+                }
+                let number = reading.left.map { "\(Int($0.rounded()))%" } ?? "?"
+                title.append(text(number))
+                let pace = reading.gap.map { abs($0) <= 5 ? "on pace" : "\(Int(abs($0).rounded())) \($0 > 0 ? "under" : "over")" } ?? "no clock"
+                parts.append("\(pace), \(number) left")
+            }
+            if shown.isEmpty {
+                title.append(text("?"))
+                parts.append("?")
+            }
+            var missing = ""
+            if totals, shown.first?.left != nil, readings.contains(where: { $0.left == nil }) { missing = " + ?" }
+            title.append(text(missing + warnings))
+            descriptions.append("\(name) \(parts.joined(separator: " / "))\(missing)\(warnings)")
         }
         let size = title.size()
         let image = NSImage(size: NSSize(width: ceil(size.width), height: 18), flipped: false) { _ in
@@ -545,7 +594,7 @@ extension Account {
         image.isTemplate = true
         item?.button?.image = image
         item?.button?.imagePosition = .imageOnly
-        item?.button?.setAccessibilityLabel(descriptions.joined(separator: ", ") + (showReserve ? " reserve" : " remaining"))
+        item?.button?.setAccessibilityLabel(descriptions.joined(separator: ", ") + (showReserve ? "" : " remaining"))
     }
 
     func menuWillOpen(_ menu: NSMenu) {
