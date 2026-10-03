@@ -28,6 +28,7 @@ struct AppFailure: LocalizedError {
     @Published var refreshIssue: String?
     /// Weekly allowance each account used over the last seven days, keyed by driver and email, from CPA Usage Keeper.
     var keeperUsage: (at: Date, used: [String: Double])?
+    private var keeperRetry: Task<Void, Never>?
 
     func keeperWeekUsed(driver: String, email: String?, now: Date) -> Double? {
         guard let keeperUsage, now.timeIntervalSince(keeperUsage.at) < 3600, let email else { return nil }
@@ -35,7 +36,7 @@ struct AppFailure: LocalizedError {
     }
 
     /// Reads every enabled account's weekly quota history from the keeper at the `keeperURL` default. Failures keep the last
-    /// reading, which expires after an hour.
+    /// reading, which expires after an hour, and retry after 30 seconds.
     func refreshKeeper() async {
         guard let base = UserDefaults.standard.string(forKey: "keeperURL").flatMap(URL.init(string:)) else { return }
         struct Identities: Decodable {
@@ -63,6 +64,15 @@ struct AppFailure: LocalizedError {
             onChange?()
         } catch {
             NSLog("T3QuotaBar keeper: %@", "\(error)")
+            // The first request from a freshly installed build can fail while macOS checks local network access, so retry
+            // soon rather than waiting for the five-minute refresh.
+            if keeperRetry == nil {
+                keeperRetry = Task {
+                    try? await Task.sleep(nanoseconds: 30_000_000_000)
+                    keeperRetry = nil
+                    await refreshKeeper()
+                }
+            }
         }
     }
 
