@@ -160,7 +160,7 @@ struct AppFailure: LocalizedError {
         if pair {
             message = "Pairing with T3 Code…"
             let pairingToken = try await Task.detached {
-                let candidates = ["/Applications/T3 Code (Alpha).app", "/Applications/T3 Code.app"]
+                let candidates = ["/Applications/T3 Code (Alpha).app", "/Applications/T3 Code (Nightly).app", "/Applications/T3 Code.app"]
                 guard let app = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
                     throw AppFailure(message: "Install T3 Code in Applications first.")
                 }
@@ -213,7 +213,7 @@ struct AppFailure: LocalizedError {
         try Task.checkCancellation()
         var components = URLComponents(url: origin.appendingPathComponent("ws"), resolvingAgainstBaseURL: false)!
         components.scheme = "ws"
-        components.queryItems = [URLQueryItem(name: "wsTicket", value: ticket.ticket)]
+        components.queryItems = [URLQueryItem(name: "wsTicket", value: ticket.ticket), URLQueryItem(name: "orchestrationProtocol", value: "2")]
         let ws = URLSession.shared.webSocketTask(with: components.url!)
         socket = ws
         ws.resume()

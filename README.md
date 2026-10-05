@@ -41,7 +41,7 @@ bash scripts/build-app.sh
 open dist/T3QuotaBar.app
 ```
 
-Copy `dist/T3QuotaBar.app` to Applications to install. Click the menu-bar item, then **Connect to T3 Code**. The app invokes T3's bundled `pair` CLI and saves its bearer session in macOS Keychain. Upgrading from the read-only version requires pairing once for refresh permission. It supports T3 Code and T3 Code Alpha installed in `/Applications`, using the default `~/.t3` data directory.
+Copy `dist/T3QuotaBar.app` to Applications to install. Click the menu-bar item, then **Connect to T3 Code**. The app invokes T3's bundled `pair` CLI and saves its bearer session in macOS Keychain. Upgrading from the read-only version requires pairing once for refresh permission. It supports T3 Code, T3 Code Alpha, and T3 Code Nightly installed in `/Applications`, using the default `~/.t3` data directory.
 
 To check the connection without printing account emails or credentials:
 
