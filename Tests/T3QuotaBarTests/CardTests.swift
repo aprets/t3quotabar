@@ -220,6 +220,12 @@ struct CardTests {
         delegate.store.keeperUsage = (Date(), ["claudeAgent|a@example.com": 30])
         delegate.updateTitles()
         #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, 70% left / 11 over, – left /") == true)
+        // A reset inside the seven days can push usage past a full week; the number then says how far over.
+        delegate.store.keeperUsage = (Date(), ["claudeAgent|a@example.com": 122])
+        delegate.updateTitles()
+        #expect(item.button?.accessibilityLabel()?.hasPrefix("Claude 9 under, 22% over / 11 over, – left /") == true)
+        delegate.store.keeperUsage = (Date(), ["claudeAgent|a@example.com": 30])
+        delegate.updateTitles()
         if ProcessInfo.processInfo.environment["T3QUOTABAR_RENDER_FIXTURES"] == "1" {
             let image = try #require(item.button?.image)
             let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui-checks")

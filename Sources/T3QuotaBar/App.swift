@@ -567,10 +567,11 @@ extension Account {
             }
             // The arrow is the pace gap on each account's own clock, which tracks how much is up for grabs before resets.
             // The number is how much of the weekly allowance went unused over the last seven days, from CPA Usage Keeper,
-            // or a dash without keeper data; the dropdown still shows each current window. Totals average both.
+            // or a dash without keeper data; the dropdown still shows each current window. A reset inside the seven days
+            // can push usage past a full week; the number then shows how far over, in bold. Totals average both.
             let readings = accounts.map { account -> (gap: Double?, left: Double?) in
                 let used = store.keeperWeekUsed(driver: driver, email: account.email, now: now)
-                return (account.weekly?.pace(now: now, creditReset: account.limits?.creditReset)?.reserve, used.map { max(0, 100 - $0) })
+                return (account.weekly?.pace(now: now, creditReset: account.limits?.creditReset)?.reserve, used.map { 100 - $0 })
             }
             func average(_ values: [Double]) -> Double? { values.isEmpty ? nil : values.reduce(0, +) / Double(values.count) }
             let shown = totals ? [(gap: average(readings.compactMap(\.gap)), left: average(readings.compactMap(\.left)))] : readings
@@ -581,10 +582,11 @@ extension Account {
                     title.append(attach(arrow(gap)))
                     title.append(text(" "))
                 }
-                let number = reading.left.map { "\(Int($0.rounded()))%" } ?? "–"
-                title.append(text(number))
+                let left = reading.left.map { Int($0.rounded()) }
+                let number = left.map { "\(abs($0))%" } ?? "–"
+                title.append(left.map { $0 < 0 } == true ? NSAttributedString(string: number, attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .bold), .foregroundColor: NSColor.black]) : text(number))
                 let pace = reading.gap.map { abs($0) <= 5 ? "on pace" : "\(Int(abs($0).rounded())) \($0 > 0 ? "under" : "over")" } ?? "no clock"
-                parts.append("\(pace), \(number) left")
+                parts.append("\(pace), \(number) \(left.map { $0 < 0 } == true ? "over" : "left")")
             }
             if shown.isEmpty {
                 title.append(text("?"))
