@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Security
 import LocalAuthentication
+import Sparkle
 
 struct AppFailure: LocalizedError {
     let message: String
@@ -434,8 +435,10 @@ extension Account {
     }
 }
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpdaterDelegate {
     let store = Store()
+    /// Sparkle checks the appcast daily and installs quietly. Only packaged builds carry its keys, so `swift run` has none.
+    var updater: SPUStandardUpdaterController?
     var item: NSStatusItem?
     let menu = NSMenu()
     var icons: [String: NSImage] = [:]
@@ -443,6 +446,9 @@ extension Account {
     var preferences = UserDefaults.standard
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil {
+            updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+        }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.item = item
         menu.delegate = self
@@ -677,9 +683,16 @@ extension Account {
         let reconnect = menu.addItem(withTitle: store.connected ? "Reconnect to T3 Code" : "Connect to T3 Code…", action: #selector(reconnect), keyEquivalent: "")
         reconnect.target = self
         reconnect.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        var items = [reserve, sum, reconnect]
+        if updater != nil {
+            let update = menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+            update.target = self
+            update.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+            items.append(update)
+        }
         let quit = menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.image = NSImage(systemSymbolName: "xmark.rectangle", accessibilityDescription: nil)
-        for item in [reserve, sum, reconnect, quit] {
+        for item in items + [quit] {
             item.image?.isTemplate = true
             item.image?.size = NSSize(width: 16, height: 16)
         }
@@ -730,6 +743,17 @@ extension Account {
     }
 
     @objc func reconnect() { store.start(pair: !store.connected) }
+
+    @objc func checkForUpdates() {
+        NSApp.activate()  // a menu-bar app's update window would otherwise open behind the frontmost app
+        updater?.checkForUpdates(nil)
+    }
+
+    /// Installs a downloaded update now and relaunches, rather than waiting for a quit a menu-bar app rarely sees.
+    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock: @escaping () -> Void) -> Bool {
+        immediateInstallationBlock()
+        return true
+    }
 
     @objc func openStatusPage(_ sender: NSMenuItem) {
         NSWorkspace.shared.open(URL(string: sender.representedObject as? String == "codex" ? "https://status.openai.com" : "https://status.claude.com")!)

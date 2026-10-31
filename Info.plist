@@ -10,5 +10,10 @@
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
+<key>SUFeedURL</key><string>https://github.com/aprets/t3quotabar/releases/latest/download/appcast.xml</string>
+<key>SUPublicEDKey</key><string>F0ztSsKcGaIzyFt7QYBElIWRrN7m1kEKlTO1x7tbQL8=</string>
+<key>SUEnableAutomaticChecks</key><true/>
+<key>SUAutomaticallyUpdate</key><true/>
+<key>SUScheduledCheckInterval</key><integer>86400</integer>
 <key>NSLocalNetworkUsageDescription</key><string>T3QuotaBar reads seven-day quota history from a CPA Usage Keeper on your local network.</string>
 </dict></plist>
