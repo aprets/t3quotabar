@@ -25,7 +25,7 @@ struct AppFailure: LocalizedError {
     private var lastFrameAt = Date()
     private var sessionTokens: [String: String] = [:]
     var refreshSchedule = QuotaRefreshSchedule()
-    @Published var refreshIssue: String?
+    var refreshIssue: String? { refreshSchedule.failed ? "Last automatic refresh failed. Retrying automatically." : nil }
     /// Weekly allowance each account used over the last seven days, keyed by driver and email, from CPA Usage Keeper.
     var keeperUsage: (at: Date, used: [String: Double])?
     private var keeperRetry: Task<Void, Never>?
@@ -81,8 +81,6 @@ struct AppFailure: LocalizedError {
         heartbeat?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         connected = false
-        refreshSchedule.pending = false
-        refreshIssue = nil
         message = "Connecting to T3 Code…"
         onChange?()
         connection = Task {
@@ -229,14 +227,14 @@ struct AppFailure: LocalizedError {
                         return
                     }
                     try await ws.send(.string("{\"_tag\":\"Ping\"}"))
-                    if connected, refreshIssue == nil, refreshSchedule.beginIfDue(accounts: quotas.accounts, now: Date()) {
+                    if connected, refreshSchedule.beginIfDue(accounts: quotas.accounts, now: Date()) {
                         try await ws.send(.string("{\"_tag\":\"Request\",\"id\":\"quota-refresh\",\"tag\":\"server.refreshProviders\",\"payload\":{},\"headers\":[]}"))
                         NSLog("T3QuotaBar requested stale quota refresh through T3")
                     }
                     if refreshSchedule.pending, let attempted = refreshSchedule.lastAttempt, Date().timeIntervalSince(attempted) >= 120 {
-                        refreshSchedule.pending = false
+                        refreshSchedule.finish(succeeded: false)
                         try await ws.send(.string("{\"_tag\":\"Interrupt\",\"requestId\":\"quota-refresh\"}"))
-                        NSLog("T3QuotaBar quota refresh timed out; retaining subscription and cooldown")
+                        NSLog("T3QuotaBar quota refresh timed out; retrying at the next due check")
                         if CommandLine.arguments.contains("--check-refresh") {
                             print("Refresh check failed: T3 provider refresh timed out.")
                             Darwin.exit(1)
@@ -261,11 +259,8 @@ struct AppFailure: LocalizedError {
             if envelope.requestId == "quota-refresh" {
                 if envelope._tag == "Exit" {
                     guard refreshSchedule.pending else { continue }
-                    refreshSchedule.pending = false
-                    if envelope.exit?._tag != "Success" {
-                        refreshIssue = "Automatic refresh failed. Reconnect to T3 Code to retry."
-                        NSLog("T3QuotaBar quota refresh RPC failed; automatic requests paused")
-                    }
+                    refreshSchedule.finish(succeeded: envelope.exit?._tag == "Success")
+                    if refreshSchedule.failed { NSLog("T3QuotaBar quota refresh RPC failed; retrying at the next due check") }
                     if CommandLine.arguments.contains("--check-refresh") {
                         print(refreshIssue == nil ? "Refresh check passed: T3 accepted and completed provider refresh." : "Refresh check failed: T3 rejected provider refresh.")
                         Darwin.exit(refreshIssue == nil ? 0 : 1)
