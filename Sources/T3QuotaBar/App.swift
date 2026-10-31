@@ -437,7 +437,7 @@ extension Account {
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpdaterDelegate {
     let store = Store()
-    /// Sparkle checks the appcast daily and installs quietly. Only packaged builds carry its keys, so `swift run` has none.
+    /// Sparkle checks the appcast daily and installs quietly. Only release builds carry its keys (scripts/build-app.sh).
     var updater: SPUStandardUpdaterController?
     var item: NSStatusItem?
     let menu = NSMenu()

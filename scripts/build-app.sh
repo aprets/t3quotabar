@@ -18,6 +18,9 @@ cp Info.plist "$app/Contents/Info.plist"
 if [[ -n "${VERSION:-}" ]]; then
     plutil -replace CFBundleVersion -string "$VERSION" "$app/Contents/Info.plist"
     plutil -replace CFBundleShortVersionString -string "$VERSION" "$app/Contents/Info.plist"
+else # a local build: without Sparkle's keys it never replaces itself with the latest release
+    plutil -remove SUFeedURL "$app/Contents/Info.plist"
+    plutil -remove SUPublicEDKey "$app/Contents/Info.plist"
 fi
 cp Sources/T3QuotaBar/Resources/AppIcon.icns "$app/Contents/Resources/"
 cp LICENSE "$app/Contents/Resources/T3QuotaBar-LICENSE"

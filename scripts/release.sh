@@ -13,10 +13,11 @@ set -euo pipefail
 host=${BUILD_HOST:-mbp3}
 flare=${FLARE_DIR:-/root/Projects/localflare/apps/flare}
 cd "$(dirname "$0")/.."
+case ${1:-} in '' | --publish) ;; *) echo "usage: scripts/release.sh [--publish]" >&2; exit 2 ;; esac
 [ -z "$(git status --porcelain)" ] || { echo "Commit first: a release is a commit." >&2; exit 1; }
 if [ "${1:-}" = --publish ]; then
-    git fetch -q origin
-    [ -n "$(git branch -r --contains HEAD)" ] || { echo "Push $(git rev-parse --short HEAD) first." >&2; exit 1; }
+    git fetch -q origin main
+    git merge-base --is-ancestor HEAD origin/main || { echo "Publish only what's on main: every installed copy takes it." >&2; exit 1; }
 fi
 version=$(date -u +%Y%m%d.%H%M)
 tag="v$version"
@@ -46,16 +47,18 @@ bun "$flare/scripts/asc.ts" notarize "$out/$zip"
 enclosure=$(ssh "$host" zsh -s -- "$zip" <<'MAC'
 set -euo pipefail
 cd ~/Projects/t3quotabar-release/dist
-xcrun stapler staple -q T3QuotaBar.app
+for wait in 10 30 60 0; do # Apple's ticket can take a moment to appear after Accepted
+    xcrun stapler staple -q T3QuotaBar.app && break
+    (( wait )) || exit 1
+    sleep $wait
+done
 { codesign --verify --deep --strict --verbose=2 T3QuotaBar.app; spctl -a -vv T3QuotaBar.app; xcrun stapler validate T3QuotaBar.app; } >&2
 spctl -a -vv T3QuotaBar.app 2>&1 | grep -q 'source=Notarized Developer ID'
 rm -f $1 && ditto -c -k --sequesterRsrc --keepParent T3QuotaBar.app $1
-tools=~/Projects/t3quotabar-sparkle/2.10.1 # Package.swift's Sparkle
-[[ -x $tools/bin/sign_update ]] || { mkdir -p $tools && curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.10.1/Sparkle-2.10.1.tar.xz | tar -xJ -C $tools; }
 kc=~/Library/Keychains/t3quotabar-signing.keychain-db
 security unlock-keychain -p "$(cat ~/Projects/t3quotabar-signing/keychain-password)" $kc
 trap "security lock-keychain $kc" EXIT
-security find-generic-password -a t3quotabar -s sparkle-ed25519 -w $kc | $tools/bin/sign_update --ed-key-file - $1
+security find-generic-password -a t3quotabar -s sparkle-ed25519 -w $kc | ../.build/artifacts/sparkle/Sparkle/bin/sign_update --ed-key-file - $1 # SwiftPM's, pinned by Package.swift
 MAC
 )
 scp -q "$host:Projects/t3quotabar-release/dist/$zip" "$out/$zip"

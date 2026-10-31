@@ -54,7 +54,7 @@ dist/T3QuotaBar.app/Contents/MacOS/T3QuotaBar --check-reconnect
 
 Add `--pair` for the first diagnostic connection. The app has no standalone window; both account cards and actions live in native menu-bar menus.
 
-Local builds are not notarized, and no launch-at-login setting is included.
+Local builds are not notarized and leave out Sparkle's keys, so they never update themselves. No launch-at-login setting is included.
 Use a stable signing certificate to retain Keychain access across rebuilds. Set `CODE_SIGN_IDENTITY` (and `CODE_SIGN_KEYCHAIN` if it isn't on the search list) or put its fingerprint in the gitignored `.signing-identity` file. Without one, the build falls back to ad-hoc signing, and the next differently signed build makes macOS ask for access to the saved session once. A denied read stops reconnect attempts and asks you to connect explicitly.
 
 ## Releases
