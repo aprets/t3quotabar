@@ -32,6 +32,28 @@ struct QuotaTests {
         #expect(!updated)
     }
 
+    @Test func failedRefreshRetriesAtTheNextDueCheckAndClearsOnSuccess() throws {
+        let now = Date()
+        let limits = try JSONDecoder().decode(Limits.self, from: Data("""
+        {"checkedAt":"\(ISO8601DateFormatter().string(from: now))","windows":[]}
+        """.utf8))
+        let account = Account(id: "a", driver: "claudeAgent", name: "Claude", email: nil, plan: nil, source: "CPA", limits: limits, failed: false)
+        var schedule = QuotaRefreshSchedule()
+        let first = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(601))
+        #expect(first)
+        schedule.finish(succeeded: false)
+        #expect(schedule.failed && !schedule.pending)
+        let earlyRetry = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(1200))
+        #expect(!earlyRetry)
+        let retry = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(1201))
+        #expect(retry)
+        #expect(schedule.failed)
+        let overlap = schedule.beginIfDue(accounts: [account], now: now.addingTimeInterval(1900))
+        #expect(!overlap)
+        schedule.finish(succeeded: true)
+        #expect(!schedule.failed)
+    }
+
     @Test func imminentResetCreditShortensThePaceWindow() throws {
         let now = Date()
         let formatter = ISO8601DateFormatter()

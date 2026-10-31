@@ -94,9 +94,12 @@ struct Account: Identifiable {
     }
 }
 
+/// Requests a T3 provider refresh when an account is 10 minutes old, at most every 10 minutes and never overlapping.
+/// A failed attempt is retried at the next due check and stays `failed` until one succeeds.
 struct QuotaRefreshSchedule {
     var lastAttempt: Date?
     var pending = false
+    var failed = false
     private let startedAt = Date()
 
     mutating func beginIfDue(accounts: [Account], now: Date) -> Bool {
@@ -109,6 +112,11 @@ struct QuotaRefreshSchedule {
         lastAttempt = now
         pending = true
         return true
+    }
+
+    mutating func finish(succeeded: Bool) {
+        pending = false
+        failed = !succeeded
     }
 }
 
