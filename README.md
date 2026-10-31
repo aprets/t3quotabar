@@ -29,9 +29,11 @@ The interface uses copied [CodexBar](https://github.com/steipete/CodexBar) card 
 
 [Download T3QuotaBar for Apple Silicon](https://github.com/aprets/t3quotabar/releases/latest/download/T3QuotaBar-macOS-arm64.zip).
 
-Every successful `main` build publishes a new [release](https://github.com/aprets/t3quotabar/releases) numbered by build, and the link above always resolves to the newest one. Downloads do not require a GitHub account and do not expire after 30 days.
+The link always resolves to the newest [release](https://github.com/aprets/t3quotabar/releases). Releases are signed with a Developer ID, notarized and stapled, so Gatekeeper opens them without asking. Unzip it and move `T3QuotaBar.app` to Applications.
 
-Unzip it and move `T3QuotaBar.app` to Applications. These builds are ad-hoc signed, not notarized. If macOS blocks opening it, use **System Settings → Privacy & Security → Open Anyway** after attempting to launch. Updates may require connecting to T3 Code again because CI builds do not share a stable signing identity.
+The app updates itself with [Sparkle](https://sparkle-project.org). It checks the newest release's `appcast.xml` once a day, installs a new build quietly and relaunches. **Check for Updates…** in the menu checks now. Updates keep the Keychain pairing, because every release has the same signer.
+
+Builds from before the first signed release are ad-hoc signed and don't update themselves; install the signed build by hand once. On its first launch macOS asks once whether T3QuotaBar may use its saved T3 session. Choose **Always Allow** to keep the pairing, or click **Connect to T3 Code** afterwards.
 
 ## Build and run
 
@@ -52,8 +54,19 @@ dist/T3QuotaBar.app/Contents/MacOS/T3QuotaBar --check-reconnect
 
 Add `--pair` for the first diagnostic connection. The app has no standalone window; both account cards and actions live in native menu-bar menus.
 
-Builds are not notarized. No automatic updater or launch-at-login setting is included.
-Use a stable signing certificate to retain Keychain access across rebuilds. Set `CODE_SIGN_IDENTITY` or put its fingerprint in the gitignored `.signing-identity` file. Without one, the build falls back to ad-hoc signing and requires pairing again after code changes. Background Keychain reads never display authorization dialogs. A blocked read stops reconnect attempts and asks you to connect explicitly.
+Local builds are not notarized and leave out Sparkle's keys, so they never update themselves. No launch-at-login setting is included.
+Use a stable signing certificate to retain Keychain access across rebuilds. Set `CODE_SIGN_IDENTITY` (and `CODE_SIGN_KEYCHAIN` if it isn't on the search list) or put its fingerprint in the gitignored `.signing-identity` file. Without one, the build falls back to ad-hoc signing, and the next differently signed build makes macOS ask for access to the saved session once. A denied read stops reconnect attempts and asks you to connect explicitly.
+
+## Releases
+
+CI runs the tests and an ad-hoc build. Releases come from MBP3, where the signing key lives, driven from devbox:
+
+```sh
+scripts/release.sh            # dist/release/T3QuotaBar-macOS-arm64.zip and appcast.xml
+scripts/release.sh --publish  # then a GitHub release marked latest, which installed copies update to
+```
+
+It reuses Flare's setup in [localflare](https://github.com/aprets/localflare) (`apps/flare/scripts`): the Developer ID identity in MBP3's `flare-signing` keychain and the App Store Connect key that `asc.ts` notarizes with, which stays on devbox. The Sparkle update key is T3QuotaBar's own, made once by `scripts/sparkle-key.sh` into MBP3's `t3quotabar-signing` keychain. Its public half is `SUPublicEDKey` in `Info.plist`. `CFBundleVersion` is the build's UTC time, so each release sorts after the last.
 
 ## Data source
 
