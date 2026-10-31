@@ -81,7 +81,6 @@ struct AppFailure: LocalizedError {
         heartbeat?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         connected = false
-        refreshSchedule.pending = false
         message = "Connecting to T3 Code…"
         onChange?()
         connection = Task {

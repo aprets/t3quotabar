@@ -52,6 +52,14 @@ struct QuotaTests {
         #expect(!overlap)
         schedule.finish(succeeded: true)
         #expect(!schedule.failed)
+        // T3 refreshing by itself after a failure clears the note too, though no attempt was due.
+        schedule.finish(succeeded: false)
+        var refreshed = account
+        refreshed.limits = try JSONDecoder().decode(Limits.self, from: Data("""
+        {"checkedAt":"\(ISO8601DateFormatter().string(from: now.addingTimeInterval(1950)))","windows":[]}
+        """.utf8))
+        let fresh = schedule.beginIfDue(accounts: [refreshed], now: now.addingTimeInterval(2000))
+        #expect(!fresh && !schedule.failed)
     }
 
     @Test func imminentResetCreditShortensThePaceWindow() throws {
